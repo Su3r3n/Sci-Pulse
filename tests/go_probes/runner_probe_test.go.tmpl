@@ -1,0 +1,135 @@
+// Probe tests for services/harvester-go/internal/runner (tester-verifier, wave 1 recheck).
+//
+// The file is NOT compiled as part of the tests/ module (the .tmpl extension keeps it out).
+// tests/test_harvester_probes.py injects it into the runner package with `go test -overlay`,
+// so nothing is written into services/ (coder-1's zone) and the probes can use internal packages.
+//
+// The probes drive the real OpenAlex/arXiv sources against httptest servers (no stubs), to check
+// the cursor rule of §5.3/§5.4 end to end and the --offline behaviour that `make e2e` relies on.
+package runner
+
+import (
+	"context"
+	"net/http"
+	"net/http/httptest"
+	"path/filepath"
+	"testing"
+	"time"
+
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/scipulse/scipulse/services/harvester-go/internal/cache"
+	"github.com/scipulse/scipulse/services/harvester-go/internal/metrics"
+	"github.com/scipulse/scipulse/services/harvester-go/internal/ratelimit"
+	"github.com/scipulse/scipulse/services/harvester-go/internal/source"
+	"github.com/scipulse/scipulse/services/harvester-go/internal/state"
+)
+
+func probeCursor(t *testing.T, st state.Store, src, scope string) (string, bool) {
+	t.Helper()
+	cur, ok, err := st.GetCursor(context.Background(), src, scope)
+	if err != nil {
+		t.Fatalf("GetCursor: %v", err)
+	}
+	return cur.CursorValue, ok
+}
+
+// B4 + M2, OpenAlex: page 1 is acknowledged, page 2 answers 500. The pass must fail (--once exit 1)
+// and the cursor must not move past the acknowledged prefix.
+func TestProbeOpenAlex5xxKeepsCursorAtAckedPrefix(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Query().Get("cursor") == "*" {
+			_, _ = w.Write([]byte(`{"meta":{"next_cursor":"p2"},"results":[
+ {"id":"https://openalex.org/W1","updated_date":"2026-11-01T10:00:00"},
+ {"id":"https://openalex.org/W2","updated_date":"2026-11-02T10:00:00"}]}`))
+			return
+		}
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer srv.Close()
+
+	m := metrics.New(prometheus.NewRegistry())
+	src := source.NewOpenAlexSource(source.OpenAlexConfig{BaseURL: srv.URL, Metrics: m})
+	st := state.NewMemoryStore()
+	sk := &mockSink{}
+	r := New([]source.Source{src}, nil, st, sk, m, nil, Config{BatchSize: 2})
+
+	if err := r.RunOnce(context.Background()); err == nil {
+		t.Fatal("RunOnce must fail when a page answers 5xx (--once exits with 1)")
+	}
+	if sk.totalItems() != 2 {
+		t.Fatalf("records fetched before the failure must still be produced, got %d", sk.totalItems())
+	}
+	got, _ := probeCursor(t, st, "openalex", "default")
+	if got > "2026-11-02T10:00:00" {
+		t.Fatalf("cursor %q moved past the acknowledged prefix", got)
+	}
+}
+
+// B4, arXiv: every OAI set has its own scope; a failing set keeps no cursor, the healthy set commits.
+func TestProbeArxivFailingSetDoesNotMoveOtherScopes(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Query().Get("set") == "physics:hep-ex" {
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+		_, _ = w.Write([]byte(`<?xml version="1.0" encoding="UTF-8"?>
+<OAI-PMH><ListRecords>
+ <record><header><identifier>oai:arXiv.org:2611.00001</identifier><datestamp>2026-11-10</datestamp></header>
+ <metadata><arXiv><id>2611.00001</id><title>A</title></arXiv></metadata></record>
+</ListRecords></OAI-PMH>`))
+	}))
+	defer srv.Close()
+
+	m := metrics.New(prometheus.NewRegistry())
+	src := source.NewArxivSource(source.ArxivConfig{
+		BaseURL:       srv.URL,
+		Sets:          []string{"cs", "physics:hep-ex"},
+		PoliteDelay:   time.Millisecond,
+		Limiter:       ratelimit.NewIntervalLimiter(time.Millisecond, 1),
+		Max503Retries: 1,
+		Metrics:       m,
+	})
+	st := state.NewMemoryStore()
+	r := New([]source.Source{src}, nil, st, &mockSink{}, m, nil, Config{BatchSize: 10})
+
+	if err := r.RunOnce(context.Background()); err == nil {
+		t.Fatal("RunOnce must report the failing set")
+	}
+	if got, ok := probeCursor(t, st, "arxiv", "cs"); !ok || got != "2026-11-10" {
+		t.Fatalf("healthy set cs: cursor = %q (ok=%v), want 2026-11-10", got, ok)
+	}
+	// RecordError creates the state row (last_error) with an empty cursor value; that is fine.
+	if got, _ := probeCursor(t, st, "arxiv", "physics:hep-ex"); got != "" {
+		t.Fatalf("failing set physics:hep-ex must keep no cursor, got %q", got)
+	}
+}
+
+// Regression of the SplitJobs change: in --offline mode fetchOffline ignores the set, so every
+// per-set job replays the whole data/cache/arxiv directory. With the default ARXIV_SETS (3 sets)
+// `make e2e` would produce every cached arXiv record (and every DLQ case) three times.
+func TestProbeOfflineArxivIsNotMultipliedBySets(t *testing.T) {
+	// go test runs in the package directory services/harvester-go/internal/runner.
+	cacheDir, err := filepath.Abs("../../../../data/cache")
+	if err != nil {
+		t.Fatal(err)
+	}
+	dc := cache.NewDiskCache(cacheDir)
+	m := metrics.New(prometheus.NewRegistry())
+	count := func(sets []string) int {
+		src := source.NewArxivSource(source.ArxivConfig{Sets: sets, Offline: true, Cache: dc, Metrics: m})
+		sk := &mockSink{}
+		r := New([]source.Source{src}, nil, state.NewMemoryStore(), sk, m, nil, Config{BatchSize: 100})
+		if err := r.RunOnce(context.Background()); err != nil {
+			t.Fatalf("RunOnce offline: %v", err)
+		}
+		return sk.totalItems()
+	}
+	one := count([]string{"cs"})
+	three := count([]string{"cs", "physics:hep-ex", "physics:hep-ph"})
+	if one == 0 {
+		t.Fatal("offline fixtures in data/cache/arxiv produced no records")
+	}
+	if three != one {
+		t.Fatalf("offline arXiv emits each cached record once per set: 1 set -> %d items, 3 sets -> %d", one, three)
+	}
+}
