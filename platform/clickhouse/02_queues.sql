@@ -21,6 +21,7 @@ CREATE TABLE IF NOT EXISTS registry_projects_queue (
 SETTINGS kafka_broker_list = 'kafka:9092',
          kafka_topic_list  = 'cdc.registry.public.tracked_projects',
          kafka_group_name  = 'ch_registry_projects',
+         kafka_flush_interval_ms = 500,
          kafka_format      = 'AvroConfluent',
          format_avro_schema_registry_url = 'http://schema-registry:8081';
 
@@ -36,6 +37,7 @@ CREATE TABLE IF NOT EXISTS registry_repos_queue (
 SETTINGS kafka_broker_list = 'kafka:9092',
          kafka_topic_list  = 'cdc.registry.public.project_repos',
          kafka_group_name  = 'ch_registry_repos',
+         kafka_flush_interval_ms = 500,
          kafka_format      = 'AvroConfluent',
          format_avro_schema_registry_url = 'http://schema-registry:8081';
 
@@ -51,6 +53,7 @@ CREATE TABLE IF NOT EXISTS registry_institutions_queue (
 SETTINGS kafka_broker_list = 'kafka:9092',
          kafka_topic_list  = 'cdc.registry.public.institutions',
          kafka_group_name  = 'ch_registry_institutions',
+         kafka_flush_interval_ms = 500,
          kafka_format      = 'AvroConfluent',
          format_avro_schema_registry_url = 'http://schema-registry:8081';
 
@@ -64,6 +67,7 @@ CREATE TABLE IF NOT EXISTS registry_project_institutions_queue (
 SETTINGS kafka_broker_list = 'kafka:9092',
          kafka_topic_list  = 'cdc.registry.public.project_institutions',
          kafka_group_name  = 'ch_registry_project_institutions',
+         kafka_flush_interval_ms = 500,
          kafka_format      = 'AvroConfluent',
          format_avro_schema_registry_url = 'http://schema-registry:8081';
 
