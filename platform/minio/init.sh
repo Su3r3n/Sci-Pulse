@@ -6,7 +6,9 @@ MINIO_USER="${MINIO_ROOT_USER:-minioadmin}"
 MINIO_PASS="${MINIO_ROOT_PASSWORD:-minioadmin_dev_pass}"
 BUCKET="${S3_WAREHOUSE_BUCKET:-warehouse}"
 
-until mc alias set local "$MINIO_ENDPOINT" "$MINIO_USER" "$MINIO_PASS" >/dev/null 2>&1; do
+# M7: healthcheck в контейнере minio убран (нет curl), готовность проверяем здесь через mc.
+until mc alias set local "$MINIO_ENDPOINT" "$MINIO_USER" "$MINIO_PASS" >/dev/null 2>&1 \
+  && mc ready local >/dev/null 2>&1; do
   echo "Waiting for MinIO at $MINIO_ENDPOINT..."
   sleep 2
 done

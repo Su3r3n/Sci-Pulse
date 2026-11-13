@@ -27,6 +27,8 @@ scrape_configs:
     static_configs:
       - targets: ["clickhouse:9363"]
 
-  - job_name: connect
-    static_configs:
-      - targets: ["connect:9404"]
+# m7: JMX-экспортёр для Connect (:9404) пока не подключён. Джоба возвращена,
+  # когда появится javaagent в образе platform/debezium (нужен для алерта CdcDisconnected, §9.2).
+  # - job_name: connect
+  #   static_configs:
+  #     - targets: ["connect:9404"]

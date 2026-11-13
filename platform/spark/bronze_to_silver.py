@@ -138,6 +138,12 @@ def main() -> None:
                 F.regexp_replace(F.col("doi_clean"), r"^10\.48550/arxiv\.", ""),
             ),
         )
+        # m9 (§6.5): DOI 10.48550/arXiv.* — это arXiv-идентификатор, а не DOI.
+        # doi обнуляется, paper_key строится от arxiv_id.
+        .withColumn(
+            "doi_clean",
+            F.when(F.col("arxiv_from_doi").isNotNull(), None).otherwise(F.col("doi_clean")),
+        )
         .withColumn(
             "arxiv_clean",
             F.regexp_replace(
