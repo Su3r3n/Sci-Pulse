@@ -1,0 +1,16 @@
+{
+  "type": "record",
+  "name": "SyntheticEvent",
+  "namespace": "org.scipulse.v1",
+  "fields": [
+    {"name": "event_type", "type": "string"},
+    {"name": "country", "type": "string"},
+    {"name": "latency_ms", "type": "int"},
+    {"name": "bytes", "type": "int"},
+    {
+      "name": "produced_at",
+      "type": {"type": "long", "logicalType": "timestamp-micros"}
+    },
+    {"name": "synthetic", "type": "boolean", "default": true}
+  ]
+}

@@ -1,0 +1,7 @@
+go 1.26.0
+
+use (
+	./services/common-go
+	./services/harvester-go
+	./services/registry-go
+)

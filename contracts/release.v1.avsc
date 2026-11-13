@@ -1,0 +1,19 @@
+{
+  "type": "record",
+  "name": "Release",
+  "namespace": "org.scipulse.v1",
+  "fields": [
+    {"name": "repo_full_name", "type": "string"},
+    {"name": "tag", "type": "string"},
+    {"name": "name", "type": ["null", "string"], "default": null},
+    {
+      "name": "published_at",
+      "type": {"type": "long", "logicalType": "timestamp-millis"}
+    },
+    {"name": "prerelease", "type": "boolean"},
+    {
+      "name": "fetched_at",
+      "type": {"type": "long", "logicalType": "timestamp-millis"}
+    }
+  ]
+}

@@ -1,0 +1,20 @@
+{
+  "type": "record",
+  "name": "RepoSnapshot",
+  "namespace": "org.scipulse.v1",
+  "fields": [
+    {"name": "repo_full_name", "type": "string"},
+    {"name": "stars", "type": "int"},
+    {"name": "forks", "type": "int"},
+    {"name": "open_issues", "type": "int"},
+    {"name": "archived", "type": "boolean"},
+    {
+      "name": "pushed_at",
+      "type": {"type": "long", "logicalType": "timestamp-millis"}
+    },
+    {
+      "name": "snapshot_at",
+      "type": {"type": "long", "logicalType": "timestamp-millis"}
+    }
+  ]
+}
