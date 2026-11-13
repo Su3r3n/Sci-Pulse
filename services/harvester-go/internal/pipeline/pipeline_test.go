@@ -243,3 +243,36 @@ func TestDLQReasonCodes(t *testing.T) {
 		})
 	}
 }
+
+func TestParseErrorDLQKeyMatchesMappedSourceKey(t *testing.T) {
+	cases := []struct {
+		name string
+		raw  source.RawRecord
+		want string
+	}{
+		{
+			name: "openalex URL id",
+			raw:  source.RawRecord{Source: "openalex", ID: "https://openalex.org/W2741809807", Body: []byte(`{not json`)},
+			want: "openalex:W2741809807",
+		},
+		{
+			name: "arxiv OAI id",
+			raw:  source.RawRecord{Source: "arxiv", ID: "oai:arXiv.org:2611.00001", Body: []byte(`<record>broken`)},
+			want: "arxiv:2611.00001",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			res := Process(tc.raw, fixedNow)
+			if res.DLQ == nil {
+				t.Fatalf("expected DLQ for broken payload")
+			}
+			if res.Key != tc.want {
+				t.Fatalf("DLQ key = %q, want %q", res.Key, tc.want)
+			}
+			if res.DLQ.OriginalKey == nil || *res.DLQ.OriginalKey != tc.want {
+				t.Fatalf("original_key = %v, want %q", res.DLQ.OriginalKey, tc.want)
+			}
+		})
+	}
+}

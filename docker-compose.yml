@@ -87,7 +87,7 @@ services:
     environment:
       KAFKA_NODE_ID: 1
       KAFKA_PROCESS_ROLES: broker,controller
-      KAFKA_LISTENERS: INTERNAL://0.0.0.0:9092,EXTERNAL://0.0.0.0:9094,CONTROLLER://0.0.0.0:9093
+      KAFKA_LISTENERS: INTERNAL://0.0.0.0:9092,EXTERNAL://0.0.0.0:9094,CONTROLLER://:9093
       KAFKA_ADVERTISED_LISTENERS: INTERNAL://kafka:9092,EXTERNAL://localhost:9094
       KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,INTERNAL:PLAINTEXT,EXTERNAL:PLAINTEXT
       KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
@@ -123,7 +123,7 @@ services:
     image: ${SCHEMA_REGISTRY_IMAGE:-confluentinc/cp-schema-registry:7.7.1}
     profiles: ["core"]
     restart: unless-stopped
-    mem_limit: 384m
+    mem_limit: 512m
     networks: [scipulse]
     ports:
       - "127.0.0.1:8081:8081"
@@ -135,6 +135,7 @@ services:
       SCHEMA_REGISTRY_KAFKASTORE_BOOTSTRAP_SERVERS: PLAINTEXT://kafka:9092
       SCHEMA_REGISTRY_LISTENERS: http://0.0.0.0:8081
       SCHEMA_REGISTRY_SCHEMA_COMPATIBILITY_LEVEL: backward
+      SCHEMA_REGISTRY_HEAP_OPTS: "-Xms128m -Xmx256m"   # m6: лимит mem_limit 384m
     healthcheck:
       test: ["CMD-SHELL", "curl -sf http://localhost:8081/subjects >/dev/null"]
       interval: 10s
@@ -176,7 +177,7 @@ services:
     environment:
       DATABASE_URL: postgres://${REGISTRY_DB_USER:-registry_app}:${REGISTRY_DB_PASSWORD:-registry_dev_pass}@postgres:5432/${REGISTRY_DB:-registry}?sslmode=disable
       REGISTRY_API_KEY: ${REGISTRY_API_KEY:-scipulse-registry-dev-key-change-me}
-      HTTP_ADDR: ":8080"
+      PORT: "8080"   # m3: сервис читает PORT (не HTTP_ADDR)
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://localhost:8080/healthz >/dev/null || exit 1"]
       interval: 10s
@@ -184,13 +185,22 @@ services:
       retries: 10
 
   connect:
-    image: ${DEBEZIUM_IMAGE:-debezium/connect:2.7.3.Final}
+    # Образ = debezium/connect + jar-ы Confluent Avro converter (B2, Р-2).
+    # Dockerfile в platform/debezium/ (владелец coder-1) принимает ARG BASE_IMAGE.
+    build:
+      context: ./platform/debezium
+      dockerfile: Dockerfile
+      args:
+        BASE_IMAGE: ${DEBEZIUM_IMAGE:-debezium/connect:2.7.3.Final}
+    image: scipulse/debezium-connect:2.7.3-avro
     profiles: ["core"]
     restart: unless-stopped
-    mem_limit: 768m
+    mem_limit: 1024m
     networks: [scipulse]
     ports:
       - "127.0.0.1:8083:8083"
+    # /secrets/debezium.properties пишет scipulse-connect-entrypoint.sh из DEBEZIUM_DB_* при старте
+    # (R1). Каталог /secrets принадлежит пользователю kafka в образе, монтировать его не нужно.
     depends_on:
       kafka:
         condition: service_healthy
@@ -209,12 +219,14 @@ services:
       STATUS_STORAGE_REPLICATION_FACTOR: 1
       KEY_CONVERTER: io.confluent.connect.avro.AvroConverter
       VALUE_CONVERTER: io.confluent.connect.avro.AvroConverter
-      KEY_CONVERTER_SCHEMA_REGISTRY_URL: http://schema-registry:8081
-      VALUE_CONVERTER_SCHEMA_REGISTRY_URL: http://schema-registry:8081
-      CONNECT_CONFIG_PROVIDERS: file
-      CONNECT_CONFIG_PROVIDERS_FILE_CLASS: org.apache.kafka.common.config.provider.FileConfigProvider
+      CONNECT_KEY_CONVERTER_SCHEMA_REGISTRY_URL: http://schema-registry:8081   # R5: префикс CONNECT_
+      CONNECT_VALUE_CONVERTER_SCHEMA_REGISTRY_URL: http://schema-registry:8081
+      # R1: читает entrypoint (set -eu, обе переменные обязательны) и пишет /secrets/debezium.properties.
       DEBEZIUM_DB_USER: ${DEBEZIUM_DB_USER:-debezium}
       DEBEZIUM_DB_PASSWORD: ${DEBEZIUM_DB_PASSWORD:-debezium_dev_pass}
+      CONNECT_CONFIG_PROVIDERS: file
+      CONNECT_CONFIG_PROVIDERS_FILE_CLASS: org.apache.kafka.common.config.provider.FileConfigProvider
+      KAFKA_HEAP_OPTS: "-Xms256m -Xmx512m"   # m6: heap под лимит mem_limit 768m
     healthcheck:
       test: ["CMD-SHELL", "curl -sf http://localhost:8083/connectors >/dev/null"]
       interval: 10s
@@ -244,7 +256,7 @@ services:
   # 4. MinIO + ClickHouse + Spark
   # ===========================================================================
   minio:
-    image: ${MINIO_IMAGE:-minio/minio:RELEASE.2024-10-13T13-34-11Z}
+    image: ${MINIO_IMAGE:-bitnamilegacy/minio:2024.10.13}
     profiles: ["core"]
     restart: unless-stopped
     mem_limit: 384m
@@ -255,22 +267,20 @@ services:
     environment:
       MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minioadmin_dev_pass}
-    command: server /data --console-address ":9001"
+    # Образ Bitnami (minio/minio и quay.io-образы недоступны): бинарник не в PATH, данные в /bitnami/minio/data (uid 1001).
+    command: ["/opt/bitnami/minio/bin/minio", "server", "/bitnami/minio/data", "--console-address", ":9001"]
     volumes:
-      - minio_data:/data
-    healthcheck:
-      test: ["CMD-SHELL", "curl -sf http://localhost:9000/minio/health/live >/dev/null"]
-      interval: 10s
-      timeout: 5s
-      retries: 10
+      - minio_data:/bitnami/minio/data
+    # M7: в образе minio нет curl, поэтому healthcheck убран. Готовность проверяет
+    # minio-init через `mc ready` (см. platform/minio/init.sh).
 
   minio-init:
-    image: ${MINIO_MC_IMAGE:-minio/mc:RELEASE.2024-10-08T09-37-26Z}
+    image: ${MINIO_MC_IMAGE:-bitnamilegacy/minio:2024.10.13}
     profiles: ["core"]
     networks: [scipulse]
     depends_on:
       minio:
-        condition: service_healthy
+        condition: service_started
     environment:
       MINIO_ENDPOINT: http://minio:9000
       MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
@@ -325,6 +335,8 @@ services:
       - ./platform/clickhouse:/opt/clickhouse-init:ro
     entrypoint: ["sh", "/opt/clickhouse-init/init.sh"]
 
+  # Разовые задания Spark (`make demo-slice`). Профиль `spark` (m11) добавляется
+  # к `core` явно: `--profile core --profile spark run --rm spark ...`.
   spark:
     build:
       context: ./platform/spark
@@ -384,12 +396,13 @@ services:
       connect-init:
         condition: service_completed_successfully
     environment:
-      DATABASE_URL: postgres://${HARVESTER_DB_USER:-harvester_app}:${HARVESTER_DB_PASSWORD:-harvester_dev_pass}@postgres:5432/${HARVESTER_DB:-harvester}?sslmode=disable
+      # M1: harvester читает HARVESTER_DB_DSN (курсоры, ETag, бюджет живут в Postgres).
+      HARVESTER_DB_DSN: postgres://${HARVESTER_DB_USER:-harvester_app}:${HARVESTER_DB_PASSWORD:-harvester_dev_pass}@postgres:5432/${HARVESTER_DB:-harvester}?sslmode=disable
+      HARVESTER_METRICS_ADDR: ":8082"   # m3: порт /healthz и /metrics
       KAFKA_BROKERS: kafka:9092
       SCHEMA_REGISTRY_URL: http://schema-registry:8081
       OPENALEX_API_KEY: ${OPENALEX_API_KEY:-}
-      GITHUB_TOKEN: ${GITHUB_TOKEN:-}
-      HTTP_ADDR: ":8082"
+      OPENALEX_EMAIL: ${OPENALEX_EMAIL:-}
     volumes:
       - ./data/cache:/app/data/cache
     healthcheck:
@@ -398,6 +411,8 @@ services:
       timeout: 5s
       retries: 10
 
+  # B1: Dockerfile создаёт coder-1 (services/loadgen-go/Dockerfile). Контекст `.`
+  # нужен, потому что модули собираются через корневой go.work.
   loadgen:
     build:
       context: .
@@ -416,7 +431,8 @@ services:
     environment:
       KAFKA_BROKERS: kafka:9092
       SCHEMA_REGISTRY_URL: http://schema-registry:8081
-      HTTP_ADDR: ":8084"
+      HTTP_ADDR: ":8084"   # m3: loadgen-go читает HTTP_ADDR
+      PORT: "8084"         # m3: задано по указанию координатора; loadgen-go PORT не читает (HTTP_ADDR главнее)
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://localhost:8084/healthz >/dev/null || exit 1"]
       interval: 10s

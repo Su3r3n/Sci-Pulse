@@ -1,0 +1,7 @@
+# Template for /secrets/debezium.properties, the file that registry.json reads through
+# FileConfigProvider (${file:/secrets/debezium.properties:user|password}).
+#
+# Do not commit real values. In the stack the file is generated at container start from
+# DEBEZIUM_DB_USER and DEBEZIUM_DB_PASSWORD by scipulse-connect-entrypoint.sh.
+user=debezium
+password=change-me

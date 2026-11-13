@@ -1,5 +1,8 @@
 package tests
 
+// Запуск: из каталога tests/ выполнить `GOWORK=off go test ./...`
+// (модуль tests/ не входит в корневой go.work).
+
 import (
 	"encoding/json"
 	"encoding/xml"
@@ -10,10 +13,21 @@ import (
 	"testing"
 )
 
-const (
-	coder1Root = `C:\Users\beish\orca\workspaces\Sci-Pulse\main`
-	coder2Root = `C:\Users\beish\orca\workspaces\Sci-Pulse\main-2`
+// Оба кодера влиты в main: артефакты coder-1 и coder-2 лежат в корне репозитория.
+// Тесты запускаются из каталога tests/, поэтому корень репо — "..".
+var (
+	repoRoot   = mustAbs("..")
+	coder1Root = repoRoot
+	coder2Root = repoRoot
 )
+
+func mustAbs(p string) string {
+	abs, err := filepath.Abs(p)
+	if err != nil {
+		panic(err)
+	}
+	return abs
+}
 
 type avroSchema struct {
 	Type      string      `json:"type"`
@@ -204,19 +218,19 @@ func TestKafkaTopicsMatchSection2_2(t *testing.T) {
 	}
 	script := string(raw)
 	expected := map[string]string{
-		"raw.papers.openalex":                       "3",
-		"raw.papers.arxiv":                          "3",
-		"raw.papers.inspire":                        "3",
-		"raw.code.github":                           "3",
-		"raw.code.events":                           "3",
-		"raw.code.zenodo":                           "1",
-		"cdc.registry.public.tracked_projects":      "1",
-		"cdc.registry.public.project_repos":         "1",
-		"cdc.registry.public.institutions":          "1",
-		"cdc.registry.public.project_institutions":  "1",
-		"dlq.papers":                                "1",
-		"dlq.code":                                  "1",
-		"load.synthetic":                            "6",
+		"raw.papers.openalex":                      "3",
+		"raw.papers.arxiv":                         "3",
+		"raw.papers.inspire":                       "3",
+		"raw.code.github":                          "3",
+		"raw.code.events":                          "3",
+		"raw.code.zenodo":                          "1",
+		"cdc.registry.public.tracked_projects":     "1",
+		"cdc.registry.public.project_repos":        "1",
+		"cdc.registry.public.institutions":         "1",
+		"cdc.registry.public.project_institutions": "1",
+		"dlq.papers":                               "1",
+		"dlq.code":                                 "1",
+		"load.synthetic":                           "6",
 	}
 	for topic, partitions := range expected {
 		re := regexp.MustCompile(`create_(?:delete|compact)_topic\s+"` + regexp.QuoteMeta(topic) + `"\s+` + partitions + `\b`)

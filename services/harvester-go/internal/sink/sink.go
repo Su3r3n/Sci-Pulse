@@ -37,6 +37,7 @@ type Sink interface {
 // KafkaSink encodes records with Confluent Avro framing and produces them via common-go/kafka.
 type KafkaSink struct {
 	producer *kafka.Producer
+	srClient *avro.Client
 	codec    *avro.Codec
 	metrics  *metrics.Metrics
 	logger   *slog.Logger
@@ -55,6 +56,7 @@ func NewKafkaSink(producer *kafka.Producer, srClient *avro.Client, m *metrics.Me
 	}
 	return &KafkaSink{
 		producer: producer,
+		srClient: srClient,
 		codec:    avro.NewCodec(srClient),
 		metrics:  m,
 		logger:   logger,
@@ -75,8 +77,24 @@ func (s *KafkaSink) EnsureSchemas(ctx context.Context, srClient *avro.Client, so
 	return nil
 }
 
+// resolveSchema registers schemaStr under subject and returns its ID and parsed form.
+// Its errors are about the registry or the network, not about the record, so callers must not DLQ them.
+func (s *KafkaSink) resolveSchema(ctx context.Context, subject, schemaStr string) (int, avro.Schema, error) {
+	id, err := s.srClient.RegisterSchema(ctx, subject, schemaStr)
+	if err != nil {
+		return 0, nil, err
+	}
+	schema, _, err := s.srClient.GetSchemaByID(ctx, id)
+	if err != nil {
+		return 0, nil, err
+	}
+	return id, schema, nil
+}
+
 // ProduceBatch Avro-encodes and synchronously produces all items in a batch.
-// If any Paper fails Avro serialization, it is rerouted to dlq.papers with reason="schema_error".
+// If a Paper cannot be serialized against its schema, it is rerouted to dlq.papers with reason="schema_error".
+// A Schema Registry or network failure fails the whole batch instead, so the cursor does not advance
+// and the batch is retried; such failures say nothing about the record.
 func (s *KafkaSink) ProduceBatch(ctx context.Context, items []BatchItem) error {
 	if len(items) == 0 {
 		return nil
@@ -89,7 +107,11 @@ func (s *KafkaSink) ProduceBatch(ctx context.Context, items []BatchItem) error {
 		res := item.Result
 		if res.Paper != nil {
 			subject := res.Topic + "-value"
-			wire, err := s.codec.Encode(ctx, subject, PaperSchemaV1, res.Paper)
+			schemaID, schema, err := s.resolveSchema(ctx, subject, PaperSchemaV1)
+			if err != nil {
+				return fmt.Errorf("resolve paper schema for %s: %w", subject, err)
+			}
+			wire, err := s.codec.EncodeWithSchema(schemaID, schema, res.Paper)
 			if err != nil {
 				s.logger.Warn("paper avro serialization failed, routing to dlq",
 					"source", res.Paper.Source,

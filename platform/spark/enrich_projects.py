@@ -1,32 +1,67 @@
 """Spark job: Enrich lake.silver.papers with project_slugs and repo_links from ClickHouse registry."""
 
-import re
+import os
+
 from pyspark.sql import functions as F
 from pyspark.sql.types import ArrayType, StringType
+
 from common import ch_jdbc_props, ch_jdbc_url, ensure_tables, get_spark
+from repo_names import GH_REPO_PATTERN, normalize_repo
+
+# M4: generic JDBC не мапит Array(String) из ClickHouse (java.sql.Types.ARRAY).
+# Подзапрос сворачивает массивы в строку с разделителем char(31), а разбор в массивы
+# делает Spark (split + filter пустых элементов).
+PROJECTS_QUERY = """(
+  SELECT id, slug,
+         arrayStringConcat(keywords, char(31)) AS keywords_s,
+         arrayStringConcat(topics, char(31))   AS topics_s
+  FROM v_projects_current
+  WHERE status = 'active'
+) AS projects_q"""
+
+SEP = "\x1f"  # то же значение, что char(31) в запросе
+
+
+def _split_lower(col_name: str):
+    """Строка с разделителем -> массив непустых строк в нижнем регистре."""
+    parts = F.split(F.coalesce(F.col(col_name), F.lit("")), SEP)
+    return F.transform(
+        F.filter(parts, lambda x: x != ""),
+        lambda x: F.lower(x),
+    )
+
+
+def load_projects(spark, jdbc_url: str, props: dict):
+    return spark.read.jdbc(jdbc_url, PROJECTS_QUERY, properties=props).select(
+        "id",
+        "slug",
+        _split_lower("keywords_s").alias("keywords"),
+        _split_lower("topics_s").alias("topics"),
+    )
 
 
 def main() -> None:
     spark = get_spark("scipulse-enrich-projects")
+    # UDF выполняются на executor-ах: модуль repo_names должен быть доступен там.
+    spark.sparkContext.addPyFile(
+        os.path.join(os.path.dirname(os.path.abspath(__file__)), "repo_names.py")
+    )
     ensure_tables(spark)
 
     jdbc_url = ch_jdbc_url()
     props = ch_jdbc_props()
 
-    projects_df = spark.read.jdbc(jdbc_url, "v_projects_current", properties=props).filter(
-        F.col("status") == "active"
-    )
-    repos_df = spark.read.jdbc(jdbc_url, "v_repos_current", properties=props)
-
     projects = [
         {
             "id": r["id"],
             "slug": r["slug"],
-            "keywords": [k.lower() for k in (r["keywords"] or []) if k],
-            "topics": [t.lower() for t in (r["topics"] or []) if t],
+            "keywords": list(r["keywords"] or []),
+            "topics": list(r["topics"] or []),
         }
-        for r in projects_df.collect()
+        for r in load_projects(spark, jdbc_url, props).collect()
     ]
+    repos_df = spark.read.jdbc(jdbc_url, "v_repos_current", properties=props)
+
     repo_to_slug = {}
     proj_id_to_slug = {p["id"]: p["slug"] for p in projects}
     for r in repos_df.collect():
@@ -39,23 +74,21 @@ def main() -> None:
         spark.stop()
         return
 
-    gh_pattern = re.compile(r"github\.com/([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)")
-
     @F.udf(ArrayType(StringType()))
     def match_repos(links, comments, abstract):
         found = set()
+
+        def add_from(text):
+            for m in GH_REPO_PATTERN.findall(text or ""):
+                entry = repo_to_slug.get(normalize_repo(m).lower())
+                if entry:
+                    found.add(entry[0])
+
         for lnk in links or []:
             url = (lnk["url"] or "") if isinstance(lnk, dict) else (getattr(lnk, "url", "") or "")
-            for m in gh_pattern.findall(url):
-                clean = m.rstrip(".git/")
-                if clean.lower() in repo_to_slug:
-                    found.add(repo_to_slug[clean.lower()][0])
-        for txt in (comments, abstract):
-            if txt:
-                for m in gh_pattern.findall(txt):
-                    clean = m.rstrip(".git/")
-                    if clean.lower() in repo_to_slug:
-                        found.add(repo_to_slug[clean.lower()][0])
+            add_from(url)
+        add_from(comments)
+        add_from(abstract)
         return sorted(found)
 
     @F.udf(ArrayType(StringType()))

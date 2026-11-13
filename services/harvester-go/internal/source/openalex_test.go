@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync/atomic"
 	"testing"
 
@@ -132,5 +133,168 @@ func TestOpenAlexBudgetExhaustedStopsCleanly(t *testing.T) {
 	}
 	if worksCalls.Load() != 0 {
 		t.Fatalf("expected 0 /works calls when budget is 0, got %d", worksCalls.Load())
+	}
+}
+
+func collectRecords(t *testing.T, ch <-chan RawRecord) []RawRecord {
+	t.Helper()
+	var out []RawRecord
+	for r := range ch {
+		out = append(out, r)
+	}
+	return out
+}
+
+func TestOpenAlexRequestsSortedByUpdatedDate(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if got := r.URL.Query().Get("sort"); got != "updated_date:asc" {
+			t.Errorf("sort = %q, want updated_date:asc", got)
+		}
+		_, _ = w.Write([]byte(`{"meta":{"next_cursor":null},"results":[]}`))
+	}))
+	defer srv.Close()
+
+	src := NewOpenAlexSource(OpenAlexConfig{BaseURL: srv.URL, Metrics: metrics.New(prometheus.NewRegistry())})
+	ch, err := src.Fetch(context.Background(), Job{Since: "2026-11-01"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	collectRecords(t, ch)
+	if !src.OrderedCursor() {
+		t.Fatal("openalex must report an ordered cursor")
+	}
+}
+
+func TestOpenAlexHTTP5xxIsTerminalAndMasksAPIKey(t *testing.T) {
+	var calls atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if calls.Add(1) == 1 {
+			_, _ = w.Write([]byte(`{"meta":{"next_cursor":"c2"},"results":[{"id":"https://openalex.org/W1","updated_date":"2026-11-10"}]}`))
+			return
+		}
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer srv.Close()
+
+	src := NewOpenAlexSource(OpenAlexConfig{
+		BaseURL: srv.URL,
+		APIKey:  "super-secret",
+		Metrics: metrics.New(prometheus.NewRegistry()),
+	})
+	ch, err := src.Fetch(context.Background(), Job{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	recs := collectRecords(t, ch)
+	if len(recs) != 2 {
+		t.Fatalf("expected 1 record then 1 terminal error, got %d records", len(recs))
+	}
+	if recs[0].Err != nil || recs[0].Cursor != "2026-11-10" {
+		t.Fatalf("first record should be a normal work with its date cursor: %+v", recs[0])
+	}
+	if recs[1].Err == nil || !strings.Contains(recs[1].Err.Error(), "HTTP 500") {
+		t.Fatalf("second record should carry the HTTP 500 error, got %+v", recs[1])
+	}
+	if strings.Contains(recs[1].Err.Error(), "super-secret") {
+		t.Fatalf("error leaks the API key: %v", recs[1].Err)
+	}
+}
+
+func TestOpenAlexRateLimitedIsTerminal(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusTooManyRequests)
+	}))
+	defer srv.Close()
+
+	src := NewOpenAlexSource(OpenAlexConfig{BaseURL: srv.URL, Metrics: metrics.New(prometheus.NewRegistry())})
+	ch, _ := src.Fetch(context.Background(), Job{})
+	recs := collectRecords(t, ch)
+	if len(recs) != 1 || recs[0].Err == nil {
+		t.Fatalf("429 must surface as a terminal error, got %+v", recs)
+	}
+}
+
+func TestOpenAlexCursorIsDateNotPagingToken(t *testing.T) {
+	// A work without updated_date must not inherit the paging token as its cursor.
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"meta":{"next_cursor":"IlsxNzYwMDAwMDAw"},"results":[{"id":"https://openalex.org/W9"}]}`))
+	}))
+	defer srv.Close()
+
+	src := NewOpenAlexSource(OpenAlexConfig{BaseURL: srv.URL, Metrics: metrics.New(prometheus.NewRegistry())})
+	ch, _ := src.Fetch(context.Background(), Job{})
+	recs := collectRecords(t, ch)
+	if len(recs) == 0 {
+		t.Fatal("expected at least one record")
+	}
+	if recs[0].Cursor != "" {
+		t.Fatalf("cursor = %q, want empty: paging token is not a date", recs[0].Cursor)
+	}
+}
+
+func TestOpenAlexBrokenItemDoesNotStopPagination(t *testing.T) {
+	var calls atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if calls.Add(1) == 1 {
+			// Every item on the first page is malformed; the paging token must still be followed.
+			_, _ = w.Write([]byte(`{"meta":{"next_cursor":"c2"},"results":["bad-1","bad-2"]}`))
+			return
+		}
+		_, _ = w.Write([]byte(`{"meta":{"next_cursor":null},"results":[{"id":"https://openalex.org/W3","updated_date":"2026-11-12"}]}`))
+	}))
+	defer srv.Close()
+
+	src := NewOpenAlexSource(OpenAlexConfig{BaseURL: srv.URL, Metrics: metrics.New(prometheus.NewRegistry())})
+	ch, _ := src.Fetch(context.Background(), Job{})
+	recs := collectRecords(t, ch)
+	if calls.Load() != 2 {
+		t.Fatalf("pagination stopped after a page of broken items: %d requests", calls.Load())
+	}
+	if len(recs) != 3 || recs[0].ParseError == nil || recs[2].Cursor != "2026-11-12" {
+		t.Fatalf("unexpected records: %+v", recs)
+	}
+}
+
+func TestOpenAlexRepeatedCursorIsTerminal(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"meta":{"next_cursor":"same"},"results":[]}`))
+	}))
+	defer srv.Close()
+
+	src := NewOpenAlexSource(OpenAlexConfig{BaseURL: srv.URL, Metrics: metrics.New(prometheus.NewRegistry())})
+	ch, _ := src.Fetch(context.Background(), Job{})
+	recs := collectRecords(t, ch)
+	if len(recs) != 1 || recs[0].Err == nil {
+		t.Fatalf("a repeated paging cursor must end the pass with an error, got %+v", recs)
+	}
+}
+
+// R4: a 4xx on the works query is terminal and its body (without the API key) reaches the error.
+func TestOpenAlexHTTP400ErrorCarriesBodyWithoutKey(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = w.Write([]byte(`{"error":"Invalid sort field: updated_date; api_key=super-secret"}`))
+	}))
+	defer srv.Close()
+
+	src := NewOpenAlexSource(OpenAlexConfig{
+		BaseURL: srv.URL,
+		APIKey:  "super-secret",
+		Metrics: metrics.New(prometheus.NewRegistry()),
+	})
+	ch, err := src.Fetch(context.Background(), Job{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	recs := collectRecords(t, ch)
+	if len(recs) != 1 || recs[0].Err == nil {
+		t.Fatalf("expected one terminal error, got %+v", recs)
+	}
+	msg := recs[0].Err.Error()
+	if !strings.Contains(msg, "HTTP 400") || !strings.Contains(msg, "Invalid sort field") {
+		t.Fatalf("error should name the status and the body: %v", msg)
+	}
+	if strings.Contains(msg, "super-secret") {
+		t.Fatalf("error leaks the API key: %v", msg)
 	}
 }

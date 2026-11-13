@@ -72,17 +72,17 @@ func TestHelpers(t *testing.T) {
 }
 
 type sampleNested struct {
-	Brokers []string `env:"KAFKA_BROKERS" default:"localhost:9094"`
+	Brokers []string      `env:"KAFKA_BROKERS" default:"localhost:9094"`
 	Timeout time.Duration `env:"KAFKA_TIMEOUT" default:"2m"`
 }
 
 type sampleConfig struct {
-	Port     int     `env:"PORT" default:"8080"`
-	MaxConns int32   `env:"MAX_CONNS" default:"10"`
-	APIKey   string  `env:"API_KEY" required:"true"`
-	Debug    bool    `env:"DEBUG" default:"false"`
-	Rate     float64 `env:"RATE" default:"1.5"`
-	Kafka    sampleNested
+	Port      int     `env:"PORT" default:"8080"`
+	MaxConns  int32   `env:"MAX_CONNS" default:"10"`
+	APIKey    string  `env:"API_KEY" required:"true"`
+	Debug     bool    `env:"DEBUG" default:"false"`
+	Rate      float64 `env:"RATE" default:"1.5"`
+	Kafka     sampleNested
 	validated bool
 }
 

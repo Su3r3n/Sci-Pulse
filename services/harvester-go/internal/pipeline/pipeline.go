@@ -1,6 +1,7 @@
 package pipeline
 
 import (
+	"strings"
 	"time"
 
 	"github.com/scipulse/scipulse/services/harvester-go/internal/source"
@@ -25,7 +26,7 @@ func Process(raw source.RawRecord, now time.Time) RouteResult {
 	if err != nil {
 		var origKey *string
 		if raw.ID != "" {
-			k := raw.Source + ":" + raw.ID
+			k := rawRecordKey(raw)
 			origKey = &k
 		}
 		return RouteResult{
@@ -52,7 +53,7 @@ func Process(raw source.RawRecord, now time.Time) RouteResult {
 		if key != "" && key != raw.Source+":" {
 			origKey = &key
 		} else if raw.ID != "" {
-			k := raw.Source + ":" + raw.ID
+			k := rawRecordKey(raw)
 			origKey = &k
 		}
 		return RouteResult{
@@ -78,6 +79,21 @@ func Process(raw source.RawRecord, now time.Time) RouteResult {
 		Key:   paper.RecordKey(),
 		Paper: &paper,
 	}
+}
+
+// rawRecordKey is the "<source>:<source_id>" key of a raw record whose paper could not be mapped.
+// The identifier is reduced to the form the mapper uses for source_id (the OpenAlex URL and the OAI
+// prefix are removed), so a replayed record lands in the same partition as its mapped form (§3.4).
+func rawRecordKey(raw source.RawRecord) string {
+	id := strings.TrimSpace(raw.ID)
+	switch raw.Source {
+	case "openalex":
+		id = strings.TrimPrefix(id, "https://openalex.org/")
+		id = strings.TrimPrefix(id, "http://openalex.org/")
+	case "arxiv":
+		id = strings.TrimPrefix(id, "oai:arXiv.org:")
+	}
+	return raw.Source + ":" + id
 }
 
 func derefString(p *string) string {

@@ -202,3 +202,45 @@ func TestKafkaSinkProducesValidPaperAndSchemaErrorDLQ(t *testing.T) {
 		})
 	}
 }
+
+// A Schema Registry outage must fail the batch (so the cursor stays put), not turn every paper into schema_error.
+func TestKafkaSinkRegistryOutageFailsBatchInsteadOfDLQ(t *testing.T) {
+	sr := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, "unavailable", http.StatusServiceUnavailable)
+	}))
+	defer sr.Close()
+
+	cluster, err := kfake.NewCluster(
+		kfake.NumBrokers(1),
+		kfake.SeedTopics(1, "raw.papers.openalex", "dlq.papers"),
+	)
+	if err != nil {
+		t.Fatalf("kfake cluster: %v", err)
+	}
+	defer cluster.Close()
+
+	prod, err := kafka.NewProducer(kafka.ProducerConfig{Brokers: cluster.ListenAddrs(), DeliveryTimeout: time.Minute})
+	if err != nil {
+		t.Fatalf("NewProducer: %v", err)
+	}
+	defer prod.Close()
+
+	ks, err := NewKafkaSink(prod, avro.NewClient(sr.URL), metrics.New(prometheus.NewRegistry()), nil)
+	if err != nil {
+		t.Fatalf("NewKafkaSink: %v", err)
+	}
+
+	now := time.Date(2026, 11, 13, 12, 0, 0, 0, time.UTC)
+	paper := &pipeline.Paper{
+		Source: "openalex", SourceID: "W1", Title: "Paper",
+		Authors: []pipeline.Author{{Name: "Ada", Affiliations: []string{}}}, Topics: []string{},
+		PublishedAt: now, UpdatedAt: now, Links: []pipeline.Link{}, IngestedAt: now,
+	}
+	err = ks.ProduceBatch(context.Background(), []BatchItem{{
+		Result:  pipeline.RouteResult{Topic: "raw.papers.openalex", Key: "openalex:W1", Paper: paper},
+		RawBody: []byte(`{}`),
+	}})
+	if err == nil || !strings.Contains(err.Error(), "resolve paper schema") {
+		t.Fatalf("expected batch failure on registry outage, got %v", err)
+	}
+}

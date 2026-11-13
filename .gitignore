@@ -1,6 +1,8 @@
 # Environment & Secrets
 .env
 *.local.env
+# Локальная копия секрета Debezium (раньше генерировалась `make secrets`; на всякий случай)
+secrets/
 
 # Data, Caches & Local Volumes
 data/cache/*
