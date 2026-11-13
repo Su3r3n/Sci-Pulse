@@ -5,9 +5,9 @@ SciPulse E2E CDC Latency Benchmark & Verification Script (§4.3–§4.6, §10.5 
 Executes INSERT, UPDATE, and DELETE operations on `tracked_projects` via `registry-go`
 REST API (which commits to PostgreSQL -> WAL -> Debezium `dbz_registry` -> Kafka
 `cdc.registry.public.tracked_projects` -> ClickHouse `registry_projects_queue` ->
-`registry_projects_mv` -> `scipulse.v_projects_current`), and verifies:
+`mv_registry_projects` -> `scipulse.v_projects_current`), and verifies:
   1. INSERT propagates to `scipulse.v_projects_current`.
-  2. UPDATE reflects updated fields (`name`, `priority`, `updated_at`) in `scipulse.v_projects_current`.
+  2. UPDATE reflects updated fields (`name`, `priority`) in `scipulse.v_projects_current`.
   3. DELETE removes the record from `scipulse.v_projects_current` (`__deleted` filtered out).
   4. Latency p50 and p95 are recorded, asserting p95 < 2.0s (SLO §4.6).
 """
@@ -62,7 +62,7 @@ def query_clickhouse_project(
     ch_password: str = "",
 ) -> Optional[Dict[str, Any]]:
     sql = (
-        "SELECT id, slug, name, priority, status, updated_at "
+        "SELECT id, slug, name, priority, status "  # v_projects_current has no updated_at (03_views.sql)
         "FROM scipulse.v_projects_current "
         f"WHERE id = {int(project_id)} "
         "FORMAT JSONEachRow"
@@ -195,7 +195,7 @@ def main() -> int:
     )
     parser.add_argument(
         "--api-key",
-        default=os.environ.get("REGISTRY_API_KEY", "dev-registry-key"),
+        default=os.environ.get("REGISTRY_API_KEY", "scipulse-registry-dev-key-change-me"),  # = .env.example
         help="X-API-Key for registry-go mutations",
     )
     parser.add_argument(

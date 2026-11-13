@@ -143,14 +143,8 @@ def test_connect_image_is_built_from_platform_debezium() -> None:
     [
         ("registry", "services/registry-go"),
         ("harvester", "services/harvester-go"),
-        pytest.param(
-            "loadgen",
-            "services/loadgen-go",
-            marks=pytest.mark.xfail(
-                strict=True,
-                reason="m3: compose loadgen задаёт PORT, а loadgen-go читает HTTP_ADDR (работает на дефолте :8084)",
-            ),
-        ),
+        # m3 закрыт в round 2: loadgen-go читает HTTP_ADDR и PORT (listenAddr), compose задаёт оба.
+        ("loadgen", "services/loadgen-go"),
     ],
 )
 def test_compose_env_is_read_by_service(service: str, module: str) -> None:
@@ -170,7 +164,12 @@ def test_harvester_has_state_database_in_compose() -> None:
 
 
 def test_loadgen_buildable_and_wired() -> None:
-    """B1: Dockerfile loadgen существует, модуль в go.work, порт healthcheck = EXPOSE = дефолт кода."""
+    """B1 + m3: Dockerfile loadgen существует, модуль в go.work, порт, на котором loadgen реально
+    слушает с env из compose, совпадает с EXPOSE и с портом healthcheck.
+
+    Правило выбора адреса в loadgen-go (round 2, listenAddr): явный HTTP_ADDR главнее, затем ":"+PORT,
+    затем дефолт тега env:"HTTP_ADDR".
+    """
     svc = _service("loadgen")
     dockerfile = REPO_ROOT / svc["build"]["context"] / svc["build"]["dockerfile"]
     assert dockerfile.is_file(), f"{dockerfile} missing"
@@ -178,9 +177,24 @@ def test_loadgen_buildable_and_wired() -> None:
     expose = re.search(r"^EXPOSE\s+(\d+)", dockerfile.read_text(encoding="utf-8"), re.M)
     main_go = (REPO_ROOT / "services/loadgen-go/cmd/loadgen/main.go").read_text(encoding="utf-8")
     default = re.search(r'env:"HTTP_ADDR"\s+default:":(\d+)"', main_go)
-    health = " ".join(svc["healthcheck"]["test"])
     assert expose and default
-    assert expose.group(1) == default.group(1) and f"localhost:{default.group(1)}/healthz" in health
+    reads_port = 'env:"PORT"' in main_go
+    env = {k: str(v) for k, v in (svc.get("environment") or {}).items()}
+    if env.get("HTTP_ADDR", "").strip():
+        m = re.search(r":(\d+)$", env["HTTP_ADDR"].strip())
+        assert m, f"HTTP_ADDR={env['HTTP_ADDR']!r} has no port"
+        port = m.group(1)
+    elif reads_port and env.get("PORT", "").strip():
+        port = env["PORT"].strip()
+    else:
+        port = default.group(1)
+    if env.get("PORT") and env.get("HTTP_ADDR"):
+        assert env["PORT"].strip() == port, (
+            f"compose loadgen: PORT={env['PORT']} and HTTP_ADDR={env['HTTP_ADDR']} disagree"
+        )
+    health = " ".join(svc["healthcheck"]["test"])
+    assert expose.group(1) == port, f"EXPOSE {expose.group(1)} != effective listen port {port}"
+    assert f"localhost:{port}/healthz" in health, health
 
 
 def test_loadgen_control_api_routes_match_section_5_6() -> None:
@@ -189,12 +203,16 @@ def test_loadgen_control_api_routes_match_section_5_6() -> None:
         assert f'"{route}"' in api, f"§5.6 route {route} not registered"
 
 
-@pytest.mark.xfail(strict=True, reason="m13: make test не запускает services/loadgen-go и pytest tests/")
 def test_make_test_covers_all_go_work_modules() -> None:
+    """m13 (закрыт в round 2): `make test` гоняет все модули go.work и pytest по tests/."""
     makefile = (REPO_ROOT / "Makefile").read_text(encoding="utf-8")
+    recipe = re.search(r"^test:.*?\n((?:\t.*\n?)+)", makefile, re.M)
+    assert recipe, "Makefile has no test target"
+    body = recipe.group(1)
     modules = re.findall(r"^\s*\./(services/[\w-]+)", (REPO_ROOT / "go.work").read_text(encoding="utf-8"), re.M)
-    missing = [m for m in modules if m not in makefile]
+    missing = [m for m in modules if m not in body]
     assert not missing, f"make test skips {missing}"
+    assert re.search(r"pytest\b.*\btests\b", body), "make test does not run pytest tests/"
 
 
 # --------------------------------------------------------------------------------------

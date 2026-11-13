@@ -48,8 +48,14 @@ def test_kafka_init_topics_matches_section_2_2() -> None:
 def test_debezium_registry_config_matches_section_4_4() -> None:
     cfg_path = CODER1_ROOT / "platform" / "debezium" / "registry.json"
     data = json.loads(cfg_path.read_text(encoding="utf-8"))
-    assert data["name"] == "registry-postgres"
-    cfg = data["config"]
+    # Допускаются оба формата: обёртка {name, config} (для POST /connectors) и плоская карта
+    # (для PUT /connectors/registry-postgres/config, см. L1 в docs/reviews/wave1-live-check.md).
+    if isinstance(data.get("config"), dict):
+        assert data["name"] == "registry-postgres"
+        cfg = data["config"]
+    else:
+        cfg = data
+        assert cfg.get("name", "registry-postgres") == "registry-postgres"
     assert cfg["connector.class"] == "io.debezium.connector.postgresql.PostgresConnector"
     assert cfg["plugin.name"] == "pgoutput"
     assert cfg["topic.prefix"] == "cdc.registry"
