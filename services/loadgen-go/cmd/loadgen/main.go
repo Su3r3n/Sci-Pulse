@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -23,10 +24,23 @@ import (
 // Config holds runtime settings from the environment.
 type Config struct {
 	HTTPAddr          string        `env:"HTTP_ADDR" default:":8084"`
+	Port              string        `env:"PORT"` // used when HTTP_ADDR is not set explicitly (m3)
 	LogLevel          string        `env:"LOG_LEVEL" default:"info"`
 	KafkaBrokers      string        `env:"KAFKA_BROKERS" default:"kafka:9092"`
 	SchemaRegistryURL string        `env:"SCHEMA_REGISTRY_URL" default:"http://schema-registry:8081"`
 	ShutdownTimeout   time.Duration `env:"SHUTDOWN_TIMEOUT" default:"10s"`
+}
+
+// listenAddr picks the listen address: an explicit HTTP_ADDR wins, then ":"+PORT when PORT is set,
+// otherwise the loaded default (HTTP_ADDR default ":8084").
+func listenAddr(explicitHTTPAddr, port, loaded string) string {
+	if a := strings.TrimSpace(explicitHTTPAddr); a != "" {
+		return a
+	}
+	if p := strings.TrimSpace(port); p != "" {
+		return ":" + p
+	}
+	return loaded
 }
 
 func main() {
@@ -51,8 +65,9 @@ func run() error {
 	})
 	api.Register(mux, logger)
 
+	addr := listenAddr(os.Getenv("HTTP_ADDR"), cfg.Port, cfg.HTTPAddr)
 	srv := &http.Server{
-		Addr:              cfg.HTTPAddr,
+		Addr:              addr,
 		Handler:           mux,
 		ReadHeaderTimeout: 5 * time.Second,
 	}
@@ -62,7 +77,7 @@ func run() error {
 
 	errCh := make(chan error, 1)
 	go func() {
-		logger.Info("loadgen HTTP server listening", "addr", cfg.HTTPAddr, "kafka_brokers", cfg.KafkaBrokers)
+		logger.Info("loadgen HTTP server listening", "addr", addr, "kafka_brokers", cfg.KafkaBrokers)
 		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			errCh <- err
 		}

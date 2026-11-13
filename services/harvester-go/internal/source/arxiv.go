@@ -115,7 +115,13 @@ func (s *ArxivSource) OrderedCursor() bool {
 
 // SplitJobs returns one Job per OAI set, so every set keeps its own cursor scope (§5.4).
 // A job that already names sets is split by those names; otherwise the configured sets are used.
+//
+// Offline, the cache holds every set and fetchOffline replays it in full, so the job is not split:
+// splitting would replay the same cache once per set and multiply the records (R3).
 func (s *ArxivSource) SplitJobs(job Job) []Job {
+	if s.cfg.Offline {
+		return []Job{job}
+	}
 	sets := job.Topics
 	if len(sets) == 0 {
 		sets = s.cfg.Sets

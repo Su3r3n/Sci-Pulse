@@ -207,8 +207,16 @@ func (s *OpenAlexSource) fetchOnline(ctx context.Context, job Job, out chan<- Ra
 
 		if statusCode != http.StatusOK {
 			// 429 and 5xx are failures of the pass, not the end of the result set.
-			s.cfg.Logger.Error("openalex non-200 status", "status", statusCode, "url", redactURL(reqURL))
-			sendFatal(ctx, out, "openalex", fmt.Errorf("openalex HTTP %d for %s", statusCode, redactURL(reqURL)))
+			snippet := s.errorSnippet(body)
+			if statusCode >= 400 && statusCode < 500 && statusCode != http.StatusTooManyRequests {
+				// A 4xx on the works query most often means the ordering (sort=updated_date:asc) or the
+				// from_updated_date filter was rejected. The ordered-cursor rule depends on both (R4).
+				s.cfg.Logger.Error("openalex rejected works query; verify sort=updated_date:asc and from_updated_date against the OpenAlex API",
+					"status", statusCode, "url", redactURL(reqURL), "body", snippet)
+			} else {
+				s.cfg.Logger.Error("openalex non-200 status", "status", statusCode, "url", redactURL(reqURL))
+			}
+			sendFatal(ctx, out, "openalex", fmt.Errorf("openalex HTTP %d for %s: %s", statusCode, redactURL(reqURL), snippet))
 			return
 		}
 
@@ -434,4 +442,17 @@ func redactURL(raw string) string {
 		u.RawQuery = q.Encode()
 	}
 	return u.String()
+}
+
+// errorSnippet returns the start of an error body for the log and the terminal error, with the API key removed.
+func (s *OpenAlexSource) errorSnippet(body []byte) string {
+	const max = 200
+	text := strings.TrimSpace(string(body))
+	if len(text) > max {
+		text = text[:max] + "..."
+	}
+	if s.cfg.APIKey != "" {
+		text = strings.ReplaceAll(text, s.cfg.APIKey, "***")
+	}
+	return text
 }

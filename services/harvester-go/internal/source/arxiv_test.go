@@ -203,3 +203,29 @@ func TestArxivSplitJobsGivesEachSetItsOwnScope(t *testing.T) {
 		t.Fatal("arxiv must not report an ordered cursor")
 	}
 }
+
+// R3: offline, the cache holds every set once. SplitJobs must not replay it per configured set.
+func TestArxivOfflineIsNotMultipliedBySets(t *testing.T) {
+	diskCache := cache.NewDiskCache(t.TempDir())
+	for i := 0; i < 7; i++ {
+		if err := diskCache.Put("arxiv", "page-"+string(rune('a'+i)), []byte("<OAI-PMH><ListRecords><record>broken")); err != nil {
+			t.Fatal(err)
+		}
+	}
+	src := NewArxivSource(ArxivConfig{
+		Offline: true,
+		Cache:   diskCache,
+		Sets:    []string{"cs", "physics:hep-ex", "physics:hep-ph"},
+	})
+	jobs := src.SplitJobs(Job{})
+	if len(jobs) != 1 {
+		t.Fatalf("offline SplitJobs must keep one job, got %d", len(jobs))
+	}
+	ch, err := src.Fetch(context.Background(), jobs[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	if recs := collectRecords(t, ch); len(recs) != 7 {
+		t.Fatalf("7 cached pages must yield 7 records, got %d", len(recs))
+	}
+}

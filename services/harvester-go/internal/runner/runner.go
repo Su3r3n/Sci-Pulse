@@ -27,6 +27,9 @@ type Config struct {
 	DrainTimeout time.Duration
 	PollInterval time.Duration
 	Now          func() time.Time
+	// Offline replays cached fixtures. Their cursors (for example datestamp 2024-06-01) must never
+	// reach the production harvest_cursors table, so no cursor is saved in this mode (R6).
+	Offline bool
 }
 
 // Runner orchestrates fetching from Sources, running the pipeline, producing to Sink,
@@ -298,9 +301,10 @@ func (r *Runner) runJob(ctx context.Context, src source.Source, job source.Job) 
 	return nil
 }
 
-// commitCursor persists value as the cursor of (source, scope). An empty value is a no-op.
+// commitCursor persists value as the cursor of (source, scope). An empty value, and every call in
+// offline mode (Config.Offline), is a no-op.
 func (r *Runner) commitCursor(ctx context.Context, sourceName, scope, value string) error {
-	if value == "" {
+	if value == "" || r.cfg.Offline {
 		return nil
 	}
 	now := r.cfg.Now()

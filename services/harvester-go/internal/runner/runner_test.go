@@ -399,3 +399,20 @@ func TestCancelledUnorderedJobDoesNotFinaliseCursor(t *testing.T) {
 		t.Fatalf("interrupted set must not finalise its cursor, got %q", got)
 	}
 }
+
+// R6: offline replays of fixtures never persist a cursor, even when the state store is real.
+func TestOfflineRunDoesNotPersistCursors(t *testing.T) {
+	st := state.NewMemoryStore()
+	src := &stubSource{
+		name:    "arxiv",
+		records: []source.RawRecord{{Source: "arxiv", ID: "oai:1", Body: []byte(`{}`), Cursor: "2024-06-01"}},
+	}
+	m := metrics.New(prometheus.NewRegistry())
+	r := New([]source.Source{src}, nil, st, &mockSink{}, m, nil, Config{BatchSize: 10, Offline: true})
+	if err := r.RunOnce(context.Background()); err != nil {
+		t.Fatalf("offline pass failed: %v", err)
+	}
+	if _, ok, err := st.GetCursor(context.Background(), "arxiv", "default"); err != nil || ok {
+		t.Fatalf("offline run must not save a cursor: ok=%v err=%v", ok, err)
+	}
+}

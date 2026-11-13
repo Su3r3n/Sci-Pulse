@@ -180,6 +180,7 @@ func run(args []string) error {
 		BatchSize:    cfg.BatchSize,
 		DrainTimeout: cfg.DrainTimeout,
 		PollInterval: cfg.PollInterval,
+		Offline:      *offline,
 	})
 
 	logger.Info("harvester starting",

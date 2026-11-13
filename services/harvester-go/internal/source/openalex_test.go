@@ -268,3 +268,33 @@ func TestOpenAlexRepeatedCursorIsTerminal(t *testing.T) {
 		t.Fatalf("a repeated paging cursor must end the pass with an error, got %+v", recs)
 	}
 }
+
+// R4: a 4xx on the works query is terminal and its body (without the API key) reaches the error.
+func TestOpenAlexHTTP400ErrorCarriesBodyWithoutKey(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = w.Write([]byte(`{"error":"Invalid sort field: updated_date; api_key=super-secret"}`))
+	}))
+	defer srv.Close()
+
+	src := NewOpenAlexSource(OpenAlexConfig{
+		BaseURL: srv.URL,
+		APIKey:  "super-secret",
+		Metrics: metrics.New(prometheus.NewRegistry()),
+	})
+	ch, err := src.Fetch(context.Background(), Job{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	recs := collectRecords(t, ch)
+	if len(recs) != 1 || recs[0].Err == nil {
+		t.Fatalf("expected one terminal error, got %+v", recs)
+	}
+	msg := recs[0].Err.Error()
+	if !strings.Contains(msg, "HTTP 400") || !strings.Contains(msg, "Invalid sort field") {
+		t.Fatalf("error should name the status and the body: %v", msg)
+	}
+	if strings.Contains(msg, "super-secret") {
+		t.Fatalf("error leaks the API key: %v", msg)
+	}
+}
