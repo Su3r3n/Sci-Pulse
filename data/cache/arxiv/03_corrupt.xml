@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<OAI-PMH xmlns="http://www.openarchives.org/OAI/2.0/">
+  <ListRecords>
+    <record>
+      <metadata>
+        <arXiv>
+          <id>2499.99999</id>
+          <title>Unclosed XML tag for DLQ parse_error test
