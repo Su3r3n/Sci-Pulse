@@ -96,15 +96,45 @@ type oaiResumptionToken struct {
 }
 
 type oaiRecord struct {
-	XMLName  xml.Name `xml:"record"`
+	XMLName  xml.Name  `xml:"record"`
 	Header   oaiHeader `xml:"header"`
-	InnerXML []byte   `xml:",innerxml"`
+	InnerXML []byte    `xml:",innerxml"`
 }
 
 type oaiHeader struct {
 	Status     string `xml:"status,attr"`
 	Identifier string `xml:"identifier"`
 	Datestamp  string `xml:"datestamp"`
+}
+
+// OrderedCursor reports false: OAI-PMH does not order records by datestamp, so the cursor
+// of an arXiv set moves only after the whole set has been acknowledged.
+func (s *ArxivSource) OrderedCursor() bool {
+	return false
+}
+
+// SplitJobs returns one Job per OAI set, so every set keeps its own cursor scope (§5.4).
+// A job that already names sets is split by those names; otherwise the configured sets are used.
+func (s *ArxivSource) SplitJobs(job Job) []Job {
+	sets := job.Topics
+	if len(sets) == 0 {
+		sets = s.cfg.Sets
+	}
+	out := make([]Job, 0, len(sets))
+	for _, set := range sets {
+		set = strings.TrimSpace(set)
+		if set == "" {
+			continue
+		}
+		j := job
+		j.Project = "" // the scope of an arXiv job is its set; a project slug does not apply here
+		j.Topics = []string{set}
+		out = append(out, j)
+	}
+	if len(out) == 0 {
+		return []Job{job}
+	}
+	return out
 }
 
 // Fetch streams arXiv OAI-PMH records as RawRecords.
@@ -137,14 +167,17 @@ func (s *ArxivSource) fetchOffline(ctx context.Context, out chan<- RawRecord) {
 			return
 		}
 		s.cfg.Metrics.IncCacheHit("arxiv")
-		s.emitPage(ctx, page, now, fmt.Sprintf("offline-%d", idx), out)
+		// Broken cached pages are emitted as ParseError records (DLQ); offline runs continue.
+		if _, _, err := s.emitPage(ctx, page, now, fmt.Sprintf("offline-%d", idx), out); err != nil && ctx.Err() == nil {
+			s.cfg.Logger.Warn("arxiv offline page framing error", "page", idx, "error", err)
+		}
 	}
 }
 
 func (s *ArxivSource) fetchOnline(ctx context.Context, job Job, out chan<- RawRecord) {
-	sets := s.cfg.Sets
-	if len(sets) == 0 && len(job.Topics) > 0 {
-		sets = job.Topics
+	sets := job.Topics
+	if len(sets) == 0 {
+		sets = s.cfg.Sets
 	}
 	if len(sets) == 0 {
 		sets = []string{""}
@@ -154,20 +187,27 @@ func (s *ArxivSource) fetchOnline(ctx context.Context, job Job, out chan<- RawRe
 		if ctx.Err() != nil {
 			return
 		}
-		s.fetchSet(ctx, set, job.Since, out)
+		if err := s.fetchSet(ctx, set, job.Since, out); err != nil {
+			if ctx.Err() == nil {
+				sendFatal(ctx, out, "arxiv", err)
+			}
+			return
+		}
 	}
 }
 
-func (s *ArxivSource) fetchSet(ctx context.Context, set, since string, out chan<- RawRecord) {
+// fetchSet walks every resumptionToken page of one set. It returns an error when a page
+// cannot be fetched or parsed, because the set is then incomplete and must not be treated as done.
+func (s *ArxivSource) fetchSet(ctx context.Context, set, since string, out chan<- RawRecord) error {
 	token := ""
 	for {
 		if ctx.Err() != nil {
-			return
+			return ctx.Err()
 		}
 		reqURL := s.buildURL(set, since, token)
-		body, ok := s.getWithRetryAfter(ctx, reqURL)
-		if !ok {
-			return
+		body, err := s.getWithRetryAfter(ctx, reqURL)
+		if err != nil {
+			return fmt.Errorf("arxiv set %q: %w", set, err)
 		}
 
 		if s.cfg.Cache != nil {
@@ -176,33 +216,41 @@ func (s *ArxivSource) fetchSet(ctx context.Context, set, since string, out chan<
 			}
 		}
 
-		nextToken, count := s.emitPage(ctx, body, time.Now().UTC(), reqURL, out)
-		if nextToken == "" || count == 0 {
-			return
+		// Pagination depends only on the resumptionToken, never on how many records were emitted:
+		// a page full of deleted records must not end the set early.
+		next, _, err := s.emitPage(ctx, body, time.Now().UTC(), reqURL, out)
+		if err != nil {
+			return fmt.Errorf("arxiv set %q: %w", set, err)
 		}
-		token = nextToken
+		if next == "" {
+			return nil
+		}
+		if next == token {
+			return fmt.Errorf("arxiv set %q: resumptionToken did not advance", set)
+		}
+		token = next
 	}
 }
 
-func (s *ArxivSource) getWithRetryAfter(ctx context.Context, reqURL string) ([]byte, bool) {
+// getWithRetryAfter performs one OAI request, honouring 503 + Retry-After up to Max503Retries times.
+// Any other non-200 status is an error.
+func (s *ArxivSource) getWithRetryAfter(ctx context.Context, reqURL string) ([]byte, error) {
 	for attempt := 0; attempt <= s.cfg.Max503Retries; attempt++ {
 		if s.cfg.Limiter != nil {
 			if err := s.cfg.Limiter.Wait(ctx); err != nil {
-				return nil, false
+				return nil, err
 			}
 		}
 
 		req, err := http.NewRequestWithContext(ctx, http.MethodGet, reqURL, nil)
 		if err != nil {
-			s.cfg.Logger.Error("arxiv build request failed", "error", err)
-			return nil, false
+			return nil, fmt.Errorf("arxiv build request: %w", err)
 		}
 		req.Header.Set("User-Agent", "SciPulse-Harvester/1.0")
 
 		resp, err := s.cfg.HTTPClient.Do(req)
 		if err != nil {
-			s.cfg.Logger.Error("arxiv request failed", "url", reqURL, "error", err)
-			return nil, false
+			return nil, fmt.Errorf("arxiv request: %w", err)
 		}
 
 		body, readErr := io.ReadAll(io.LimitReader(resp.Body, 32<<20))
@@ -210,8 +258,7 @@ func (s *ArxivSource) getWithRetryAfter(ctx context.Context, reqURL string) ([]b
 		s.cfg.Metrics.IncHTTPRequest("arxiv", resp.StatusCode)
 
 		if readErr != nil {
-			s.cfg.Logger.Error("arxiv read body failed", "error", readErr)
-			return nil, false
+			return nil, fmt.Errorf("arxiv read body: %w", readErr)
 		}
 
 		if resp.StatusCode == http.StatusServiceUnavailable {
@@ -221,50 +268,48 @@ func (s *ArxivSource) getWithRetryAfter(ctx context.Context, reqURL string) ([]b
 			select {
 			case <-ctx.Done():
 				timer.Stop()
-				return nil, false
+				return nil, ctx.Err()
 			case <-timer.C:
 			}
 			continue
 		}
 
 		if resp.StatusCode != http.StatusOK {
-			s.cfg.Logger.Error("arxiv unexpected HTTP status", "status", resp.StatusCode, "url", reqURL)
-			return nil, false
+			return nil, fmt.Errorf("arxiv HTTP %d for %s", resp.StatusCode, reqURL)
 		}
-		return body, true
+		return body, nil
 	}
 
-	s.cfg.Logger.Error("arxiv exhausted 503 retries", "url", reqURL)
-	return nil, false
+	return nil, fmt.Errorf("arxiv: 503 retries exhausted (%d attempts) for %s", s.cfg.Max503Retries+1, reqURL)
 }
 
-func (s *ArxivSource) emitPage(ctx context.Context, page []byte, fetchedAt time.Time, fallbackID string, out chan<- RawRecord) (nextToken string, count int) {
+// emitPage sends the records of one OAI-PMH response. It returns the resumptionToken ("" when the
+// set is finished) and the number of records sent. A page-level failure (broken XML, OAI error
+// other than noRecordsMatch) is returned as an error; a broken page is also emitted as a ParseError
+// record so that its raw bytes reach the DLQ.
+func (s *ArxivSource) emitPage(ctx context.Context, page []byte, fetchedAt time.Time, fallbackID string, out chan<- RawRecord) (nextToken string, emitted int, err error) {
 	var env oaiEnvelope
-	if err := xml.Unmarshal(page, &env); err != nil {
-		rec := RawRecord{
+	if decErr := xml.Unmarshal(page, &env); decErr != nil {
+		err = fmt.Errorf("arxiv xml decode: %w", decErr)
+		_ = sendRecord(ctx, out, RawRecord{
 			Source:     "arxiv",
 			ID:         fallbackID,
 			Body:       page,
 			Fetched:    fetchedAt,
-			ParseError: fmt.Errorf("arxiv xml decode: %w", err),
-		}
-		select {
-		case out <- rec:
-		case <-ctx.Done():
-		}
-		return "", 0
+			ParseError: err,
+		})
+		return "", 0, err
 	}
 
 	if env.Error != nil {
 		if env.Error.Code == "noRecordsMatch" {
-			return "", 0
+			return "", 0, nil
 		}
-		s.cfg.Logger.Warn("arxiv OAI-PMH error", "code", env.Error.Code, "message", strings.TrimSpace(env.Error.Message))
-		return "", 0
+		return "", 0, fmt.Errorf("arxiv OAI-PMH error %s: %s", env.Error.Code, strings.TrimSpace(env.Error.Message))
 	}
 
 	if env.ListRecords == nil {
-		return "", 0
+		return "", 0, fmt.Errorf("arxiv response has neither ListRecords nor error")
 	}
 
 	if env.ListRecords.ResumptionToken != nil {
@@ -282,22 +327,19 @@ func (s *ArxivSource) emitPage(ctx context.Context, page []byte, fetchedAt time.
 		rawRec := append([]byte("<record>"), rec.InnerXML...)
 		rawRec = append(rawRec, []byte("</record>")...)
 
-		outRec := RawRecord{
+		if sendErr := sendRecord(ctx, out, RawRecord{
 			Source:  "arxiv",
 			ID:      recID,
 			Body:    rawRec,
 			Fetched: fetchedAt,
 			Cursor:  strings.TrimSpace(rec.Header.Datestamp),
+		}); sendErr != nil {
+			return "", emitted, sendErr
 		}
-		select {
-		case out <- outRec:
-			count++
-		case <-ctx.Done():
-			return "", count
-		}
+		emitted++
 	}
 
-	return nextToken, count
+	return nextToken, emitted, nil
 }
 
 func (s *ArxivSource) buildURL(set, since, resumptionToken string) string {

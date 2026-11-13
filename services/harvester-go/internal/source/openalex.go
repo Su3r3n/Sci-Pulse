@@ -68,6 +68,11 @@ func (s *OpenAlexSource) Name() string {
 	return "openalex"
 }
 
+// OrderedCursor reports that works are requested sorted by updated_date ascending.
+func (s *OpenAlexSource) OrderedCursor() bool {
+	return true
+}
+
 type openAlexResponse struct {
 	Meta struct {
 		Count      int     `json:"count"`
@@ -142,12 +147,16 @@ func (s *OpenAlexSource) fetchOffline(ctx context.Context, out chan<- RawRecord)
 			return
 		}
 		s.cfg.Metrics.IncCacheHit("openalex")
-		s.emitPage(ctx, page, now, fmt.Sprintf("offline-%d", idx), out)
+		// A broken cached page is already emitted as a ParseError record (DLQ); offline runs continue.
+		if _, _, err := s.emitPage(ctx, page, now, fmt.Sprintf("offline-%d", idx), out); err != nil && ctx.Err() == nil {
+			s.cfg.Logger.Warn("openalex offline page framing error", "page", idx, "error", err)
+		}
 	}
 }
 
 func (s *OpenAlexSource) fetchOnline(ctx context.Context, job Job, out chan<- RawRecord) {
 	cursor := "*"
+	seen := make(map[string]struct{})
 	for {
 		if ctx.Err() != nil {
 			return
@@ -159,7 +168,7 @@ func (s *OpenAlexSource) fetchOnline(ctx context.Context, job Job, out chan<- Ra
 				return
 			}
 			if err != nil {
-				s.cfg.Logger.Error("openalex budget check failed", "error", err)
+				sendFatal(ctx, out, "openalex", fmt.Errorf("openalex budget check: %w", err))
 				return
 			}
 			if capped {
@@ -168,7 +177,7 @@ func (s *OpenAlexSource) fetchOnline(ctx context.Context, job Job, out chan<- Ra
 		}
 
 		if s.cfg.Limiter != nil {
-			if err := s.cfg.Limiter.Wait(ctx, ); err != nil {
+			if err := s.cfg.Limiter.Wait(ctx); err != nil {
 				return
 			}
 		}
@@ -179,7 +188,11 @@ func (s *OpenAlexSource) fetchOnline(ctx context.Context, job Job, out chan<- Ra
 			s.cfg.Metrics.IncHTTPRequest("openalex", statusCode)
 		}
 		if err != nil {
-			s.cfg.Logger.Error("openalex request failed", "url", redactURL(reqURL), "error", err)
+			if ctx.Err() != nil {
+				return
+			}
+			// The transport error text contains the full URL, including api_key; mask it.
+			sendFatal(ctx, out, "openalex", fmt.Errorf("openalex request: %s", strings.ReplaceAll(err.Error(), reqURL, redactURL(reqURL))))
 			return
 		}
 
@@ -192,12 +205,10 @@ func (s *OpenAlexSource) fetchOnline(ctx context.Context, job Job, out chan<- Ra
 			}
 		}
 
-		if statusCode == http.StatusTooManyRequests || statusCode >= 500 {
-			s.cfg.Logger.Warn("openalex non-200 status", "status", statusCode)
-			return
-		}
 		if statusCode != http.StatusOK {
-			s.cfg.Logger.Error("openalex unexpected status", "status", statusCode, "body", string(body))
+			// 429 and 5xx are failures of the pass, not the end of the result set.
+			s.cfg.Logger.Error("openalex non-200 status", "status", statusCode, "url", redactURL(reqURL))
+			sendFatal(ctx, out, "openalex", fmt.Errorf("openalex HTTP %d for %s", statusCode, redactURL(reqURL)))
 			return
 		}
 
@@ -207,47 +218,56 @@ func (s *OpenAlexSource) fetchOnline(ctx context.Context, job Job, out chan<- Ra
 			}
 		}
 
-		nextCursor, count := s.emitPage(ctx, body, time.Now().UTC(), reqURL, out)
-		if nextCursor == "" || count == 0 {
+		next, _, err := s.emitPage(ctx, body, time.Now().UTC(), reqURL, out)
+		if err != nil {
+			if ctx.Err() == nil {
+				sendFatal(ctx, out, "openalex", err)
+			}
 			return
 		}
-		cursor = nextCursor
+		if next == "" {
+			return
+		}
+		if _, dup := seen[next]; dup {
+			sendFatal(ctx, out, "openalex", fmt.Errorf("openalex returned already-visited cursor %q; stopping to avoid a loop", next))
+			return
+		}
+		seen[next] = struct{}{}
+		cursor = next
 	}
 }
 
-func (s *OpenAlexSource) emitPage(ctx context.Context, page []byte, fetchedAt time.Time, fallbackID string, out chan<- RawRecord) (nextCursor string, count int) {
+// emitPage sends every record of one response page. It returns the next paging cursor
+// and the number of records sent (including ParseError records). A page that cannot be
+// decoded at all returns an error: its paging cursor is unknown, so the pass cannot continue.
+func (s *OpenAlexSource) emitPage(ctx context.Context, page []byte, fetchedAt time.Time, fallbackID string, out chan<- RawRecord) (nextCursor string, emitted int, err error) {
 	var resp openAlexResponse
-	if err := json.Unmarshal(page, &resp); err != nil {
-		rec := RawRecord{
+	if decErr := json.Unmarshal(page, &resp); decErr != nil {
+		err = fmt.Errorf("openalex json decode: %w", decErr)
+		_ = sendRecord(ctx, out, RawRecord{
 			Source:     "openalex",
 			ID:         fallbackID,
 			Body:       page,
 			Fetched:    fetchedAt,
-			ParseError: fmt.Errorf("openalex json decode: %w", err),
-		}
-		select {
-		case out <- rec:
-		case <-ctx.Done():
-		}
-		return "", 0
+			ParseError: err,
+		})
+		return "", 0, err
 	}
 
 	// Support single-work JSON fixtures in offline cache as well as list responses.
 	if resp.Results == nil {
 		var single openAlexWorkMeta
-		if err := json.Unmarshal(page, &single); err == nil && single.ID != "" {
-			rec := RawRecord{
+		if jsonErr := json.Unmarshal(page, &single); jsonErr == nil && single.ID != "" {
+			if sendErr := sendRecord(ctx, out, RawRecord{
 				Source:  "openalex",
 				ID:      single.ID,
 				Body:    page,
 				Fetched: fetchedAt,
 				Cursor:  single.UpdatedDate,
+			}); sendErr != nil {
+				return "", 0, sendErr
 			}
-			select {
-			case out <- rec:
-			case <-ctx.Done():
-			}
-			return "", 1
+			return "", 1, nil
 		}
 	}
 
@@ -257,19 +277,18 @@ func (s *OpenAlexSource) emitPage(ctx context.Context, page []byte, fetchedAt ti
 
 	for idx, rawItem := range resp.Results {
 		var meta openAlexWorkMeta
-		if err := json.Unmarshal(rawItem, &meta); err != nil {
-			rec := RawRecord{
+		if decErr := json.Unmarshal(rawItem, &meta); decErr != nil {
+			// A single malformed work goes to the DLQ; the page itself is still usable.
+			if sendErr := sendRecord(ctx, out, RawRecord{
 				Source:     "openalex",
 				ID:         fmt.Sprintf("%s#%d", fallbackID, idx),
 				Body:       rawItem,
 				Fetched:    fetchedAt,
-				ParseError: fmt.Errorf("openalex work json decode: %w", err),
+				ParseError: fmt.Errorf("openalex work json decode: %w", decErr),
+			}); sendErr != nil {
+				return "", emitted, sendErr
 			}
-			select {
-			case out <- rec:
-			case <-ctx.Done():
-				return "", count
-			}
+			emitted++
 			continue
 		}
 
@@ -277,27 +296,21 @@ func (s *OpenAlexSource) emitPage(ctx context.Context, page []byte, fetchedAt ti
 		if recID == "" {
 			recID = fmt.Sprintf("%s#%d", fallbackID, idx)
 		}
-		cursorVal := meta.UpdatedDate
-		if cursorVal == "" {
-			cursorVal = nextCursor
-		}
-
-		rec := RawRecord{
+		// The cursor is the work's own updated_date. The paging token is NOT a date and must
+		// never be stored as a harvest cursor.
+		if sendErr := sendRecord(ctx, out, RawRecord{
 			Source:  "openalex",
 			ID:      recID,
 			Body:    rawItem,
 			Fetched: fetchedAt,
-			Cursor:  cursorVal,
+			Cursor:  meta.UpdatedDate,
+		}); sendErr != nil {
+			return "", emitted, sendErr
 		}
-		select {
-		case out <- rec:
-			count++
-		case <-ctx.Done():
-			return "", count
-		}
+		emitted++
 	}
 
-	return nextCursor, count
+	return nextCursor, emitted, nil
 }
 
 func (s *OpenAlexSource) checkRateLimit(ctx context.Context) error {
@@ -364,6 +377,9 @@ func (s *OpenAlexSource) buildWorksURL(job Job, cursor string) string {
 	q.Set("per_page", strconv.Itoa(s.cfg.PerPage))
 	q.Set("select", s.cfg.SelectFields)
 	q.Set("cursor", cursor)
+	// Ordering by updated_date makes the output monotone, so the runner may commit the
+	// cursor after each acknowledged batch without skipping unfetched works (§5.3).
+	q.Set("sort", "updated_date:asc")
 
 	var filters []string
 	if strings.TrimSpace(job.Since) != "" {

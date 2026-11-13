@@ -96,3 +96,36 @@ func TestBuildSourcesAndSplitCSV(t *testing.T) {
 		t.Fatal("expected error for unknown source")
 	}
 }
+
+func TestResolveDSNPrefersHarvesterVariable(t *testing.T) {
+	if got := resolveDSN("postgres://a", "postgres://b"); got != "postgres://a" {
+		t.Fatalf("HARVESTER_DB_DSN must win, got %q", got)
+	}
+	if got := resolveDSN("", " postgres://b "); got != "postgres://b" {
+		t.Fatalf("DATABASE_URL must be the fallback, got %q", got)
+	}
+	if got := resolveDSN("", ""); got != "" {
+		t.Fatalf("no DSN must stay empty, got %q", got)
+	}
+}
+
+func TestResolveMetricsAddr(t *testing.T) {
+	if got := resolveMetricsAddr("", ":8082", ":8082"); got != ":8082" {
+		t.Fatalf("HTTP_ADDR alias not used: %q", got)
+	}
+	if got := resolveMetricsAddr(":9999", ":8084", ":9999"); got != ":9999" {
+		t.Fatalf("explicit HARVESTER_METRICS_ADDR must win: %q", got)
+	}
+	if got := resolveMetricsAddr("", "", ":8082"); got != ":8082" {
+		t.Fatalf("default must be kept: %q", got)
+	}
+}
+
+func TestRunRequiresStateDatabaseOutsideOffline(t *testing.T) {
+	t.Setenv("HARVESTER_DB_DSN", "")
+	t.Setenv("DATABASE_URL", "")
+	err := run([]string{"--sources=openalex"})
+	if err == nil || !strings.Contains(err.Error(), "state database is required") {
+		t.Fatalf("expected a hard error without a state DSN outside --offline, got %v", err)
+	}
+}

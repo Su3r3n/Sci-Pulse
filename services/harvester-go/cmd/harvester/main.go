@@ -33,7 +33,9 @@ type appConfig struct {
 	KafkaDeliveryTimeout time.Duration `env:"KAFKA_DELIVERY_TIMEOUT" default:"150s"`
 	SchemaRegistryURL    string        `env:"SCHEMA_REGISTRY_URL" default:"http://schema-registry:8081"`
 	DatabaseDSN          string        `env:"HARVESTER_DB_DSN"`
+	DatabaseURL          string        `env:"DATABASE_URL"` // alias used by docker-compose
 	MetricsAddr          string        `env:"HARVESTER_METRICS_ADDR" default:":8082"`
+	HTTPAddr             string        `env:"HTTP_ADDR"` // alias used by docker-compose
 	CacheDir             string        `env:"HARVESTER_CACHE_DIR" default:"data/cache"`
 	PollInterval         time.Duration `env:"HARVESTER_POLL_INTERVAL" default:"5m"`
 	BatchSize            int           `env:"HARVESTER_BATCH_SIZE" default:"100"`
@@ -88,6 +90,8 @@ func run(args []string) error {
 	if cfg.ArxivPoliteDelay < 3*time.Second {
 		cfg.ArxivPoliteDelay = 3 * time.Second
 	}
+	cfg.DatabaseDSN = resolveDSN(cfg.DatabaseDSN, cfg.DatabaseURL)
+	cfg.MetricsAddr = resolveMetricsAddr(os.Getenv("HARVESTER_METRICS_ADDR"), cfg.HTTPAddr, cfg.MetricsAddr)
 
 	logger := obs.NewLogger("harvester-go", obs.ParseLogLevel(cfg.LogLevel))
 	reg := obs.NewRegistry()
@@ -100,6 +104,10 @@ func run(args []string) error {
 		store  state.Store
 		pgPool *pgxpool.Pool
 	)
+	if cfg.DatabaseDSN == "" && !*offline {
+		// Cursors, ETags and the API budget must survive container restarts (§5.4).
+		return errors.New("state database is required outside --offline: set HARVESTER_DB_DSN or DATABASE_URL")
+	}
 	if cfg.DatabaseDSN != "" {
 		pool, err := pgxpool.New(rootCtx, cfg.DatabaseDSN)
 		if err != nil {
@@ -114,9 +122,6 @@ func run(args []string) error {
 		}
 		store = pgStore
 	} else {
-		if !*offline {
-			logger.Warn("HARVESTER_DB_DSN not set, using ephemeral in-memory state store")
-		}
 		store = state.NewMemoryStore()
 	}
 
@@ -253,6 +258,26 @@ func buildSources(
 		return nil, errors.New("no sources configured")
 	}
 	return out, nil
+}
+
+// resolveDSN returns the state database DSN: HARVESTER_DB_DSN wins, DATABASE_URL is the fallback.
+func resolveDSN(harvesterDSN, databaseURL string) string {
+	if t := strings.TrimSpace(harvesterDSN); t != "" {
+		return t
+	}
+	return strings.TrimSpace(databaseURL)
+}
+
+// resolveMetricsAddr picks the listen address of the observability server.
+// An explicit HARVESTER_METRICS_ADDR wins, then HTTP_ADDR, then the loaded default.
+func resolveMetricsAddr(explicit, httpAddr, loaded string) string {
+	if strings.TrimSpace(explicit) != "" {
+		return loaded
+	}
+	if t := strings.TrimSpace(httpAddr); t != "" {
+		return t
+	}
+	return loaded
 }
 
 func splitCSV(raw string) []string {

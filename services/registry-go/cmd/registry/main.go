@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/golang-migrate/migrate/v4"
@@ -29,6 +30,7 @@ type Config struct {
 	DatabaseURL     string        `env:"DATABASE_URL" required:"true"`
 	APIKey          string        `env:"REGISTRY_API_KEY" required:"true"`
 	Port            string        `env:"PORT" default:"8080"`
+	HTTPAddr        string        `env:"HTTP_ADDR"` // alias used by docker-compose; wins over PORT when set
 	LogLevel        string        `env:"LOG_LEVEL" default:"info"`
 	RequestTimeout  time.Duration `env:"REQUEST_TIMEOUT" default:"5s"`
 	ShutdownTimeout time.Duration `env:"SHUTDOWN_TIMEOUT" default:"10s"`
@@ -94,7 +96,7 @@ func main() {
 	})
 
 	srv := &http.Server{
-		Addr:              ":" + cfg.Port,
+		Addr:              listenAddr(cfg.HTTPAddr, cfg.Port),
 		Handler:           router,
 		ReadHeaderTimeout: 5 * time.Second,
 	}
@@ -173,4 +175,12 @@ func runMigrations(databaseURL string, logger *slog.Logger) error {
 	}
 	logger.Info("database migrations applied", "version", version, "dirty", dirty)
 	return nil
+}
+
+// listenAddr returns the HTTP listen address: HTTP_ADDR (e.g. ":8080") when set, otherwise ":"+PORT.
+func listenAddr(httpAddr, port string) string {
+	if a := strings.TrimSpace(httpAddr); a != "" {
+		return a
+	}
+	return ":" + port
 }
