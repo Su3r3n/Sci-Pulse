@@ -1,0 +1,26 @@
+# Environment & Secrets
+.env
+*.local.env
+
+# Data, Caches & Local Volumes
+data/cache/*
+!data/cache/.gitkeep
+tmp/
+*.log
+
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+
+# Go
+*.exe
+*.test
+bin/
+
+# IDE & OS
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
