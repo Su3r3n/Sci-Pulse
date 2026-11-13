@@ -256,7 +256,7 @@ services:
   # 4. MinIO + ClickHouse + Spark
   # ===========================================================================
   minio:
-    image: ${MINIO_IMAGE:-minio/minio:RELEASE.2024-10-13T13-34-11Z}
+    image: ${MINIO_IMAGE:-quay.io/minio/minio:RELEASE.2024-10-13T13-34-11Z}
     profiles: ["core"]
     restart: unless-stopped
     mem_limit: 384m
@@ -274,7 +274,7 @@ services:
     # minio-init через `mc ready` (см. platform/minio/init.sh).
 
   minio-init:
-    image: ${MINIO_MC_IMAGE:-minio/mc:RELEASE.2024-10-08T09-37-26Z}
+    image: ${MINIO_MC_IMAGE:-quay.io/minio/mc:RELEASE.2024-10-08T09-37-26Z}
     profiles: ["core"]
     networks: [scipulse]
     depends_on:
