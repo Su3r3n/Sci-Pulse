@@ -1,0 +1,27 @@
+{
+  "type": "record",
+  "name": "DlqEnvelope",
+  "namespace": "org.scipulse.v1",
+  "fields": [
+    {"name": "reason", "type": "string"},
+    {
+      "name": "stage",
+      "type": {
+        "type": "enum",
+        "name": "DlqStage",
+        "symbols": ["fetch", "parse", "map", "validate", "serialize", "produce"]
+      }
+    },
+    {"name": "source", "type": "string"},
+    {"name": "original_topic", "type": "string"},
+    {"name": "original_key", "type": ["null", "string"], "default": null},
+    {"name": "payload", "type": "bytes"},
+    {"name": "error", "type": "string"},
+    {
+      "name": "failed_at",
+      "type": {"type": "long", "logicalType": "timestamp-millis"}
+    },
+    {"name": "attempt", "type": "int", "default": 0},
+    {"name": "rule_applied", "type": ["null", "string"], "default": null}
+  ]
+}

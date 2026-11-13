@@ -1,0 +1,580 @@
+openapi: 3.0.3
+info:
+  title: SciPulse Registry API
+  version: 1.0.0
+  description: >
+    Source of truth for tracked open-source scientific software projects,
+    GitHub repositories, and contributing institutions. Changes are persisted
+    to PostgreSQL and propagated via Debezium CDC to Kafka and ClickHouse.
+servers:
+  - url: http://localhost:8080
+    description: Local / Docker Compose registry service
+paths:
+  /healthz:
+    get:
+      summary: Liveness and database readiness probe
+      operationId: getHealthz
+      responses:
+        "200":
+          description: Service is healthy
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [status]
+                properties:
+                  status:
+                    type: string
+                    example: ok
+        "503":
+          description: Service unavailable
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetail"
+  /metrics:
+    get:
+      summary: Prometheus metrics endpoint
+      operationId: getMetrics
+      responses:
+        "200":
+          description: Prometheus exposition format
+          content:
+            text/plain:
+              schema:
+                type: string
+  /docs:
+    get:
+      summary: Swagger UI documentation
+      operationId: getDocs
+      responses:
+        "200":
+          description: Swagger UI HTML
+          content:
+            text/html:
+              schema:
+                type: string
+  /openapi.yaml:
+    get:
+      summary: OpenAPI 3.0 specification
+      operationId: getOpenAPISpec
+      responses:
+        "200":
+          description: OpenAPI YAML document
+          content:
+            application/yaml:
+              schema:
+                type: string
+  /api/v1/projects:
+    get:
+      summary: List tracked projects
+      operationId: listProjects
+      parameters:
+        - name: status
+          in: query
+          required: false
+          schema:
+            $ref: "#/components/schemas/ProjectStatus"
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 50
+        - name: cursor
+          in: query
+          required: false
+          description: Cursor by project id (returns projects with id > cursor)
+          schema:
+            type: integer
+            format: int64
+            minimum: 0
+      responses:
+        "200":
+          description: Paginated list of tracked projects
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ListProjectsResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+    post:
+      summary: Create a tracked project
+      operationId: createProject
+      security:
+        - ApiKeyAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateProjectRequest"
+      responses:
+        "201":
+          description: Project created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Project"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "409":
+          $ref: "#/components/responses/Conflict"
+  /api/v1/projects/{id}:
+    parameters:
+      - $ref: "#/components/parameters/ProjectId"
+    get:
+      summary: Get project with repositories and institutions
+      operationId: getProject
+      responses:
+        "200":
+          description: Project detail
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProjectDetail"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    patch:
+      summary: Partially update a tracked project
+      operationId: updateProject
+      security:
+        - ApiKeyAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateProjectRequest"
+      responses:
+        "200":
+          description: Project updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Project"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+    delete:
+      summary: Delete a tracked project
+      operationId: deleteProject
+      security:
+        - ApiKeyAuth: []
+      responses:
+        "204":
+          description: Project deleted
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+  /api/v1/projects/{id}/repos:
+    parameters:
+      - $ref: "#/components/parameters/ProjectId"
+    get:
+      summary: List repositories for a project
+      operationId: listProjectRepos
+      responses:
+        "200":
+          description: List of repositories
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Repo"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    post:
+      summary: Attach a GitHub repository to a project
+      operationId: createProjectRepo
+      security:
+        - ApiKeyAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateRepoRequest"
+      responses:
+        "201":
+          description: Repository attached
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Repo"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+  /api/v1/projects/{id}/repos/{repoId}:
+    parameters:
+      - $ref: "#/components/parameters/ProjectId"
+      - name: repoId
+        in: path
+        required: true
+        schema:
+          type: integer
+          format: int64
+          minimum: 1
+    delete:
+      summary: Detach a repository from a project
+      operationId: deleteProjectRepo
+      security:
+        - ApiKeyAuth: []
+      responses:
+        "204":
+          description: Repository detached
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+  /api/v1/institutions:
+    get:
+      summary: List all institutions
+      operationId: listInstitutions
+      responses:
+        "200":
+          description: List of institutions
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Institution"
+    post:
+      summary: Create an institution
+      operationId: createInstitution
+      security:
+        - ApiKeyAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateInstitutionRequest"
+      responses:
+        "201":
+          description: Institution created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Institution"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "409":
+          $ref: "#/components/responses/Conflict"
+  /api/v1/projects/{id}/institutions/{institutionId}:
+    parameters:
+      - $ref: "#/components/parameters/ProjectId"
+      - name: institutionId
+        in: path
+        required: true
+        schema:
+          type: integer
+          format: int64
+          minimum: 1
+    put:
+      summary: Link an institution to a project
+      operationId: linkProjectInstitution
+      security:
+        - ApiKeyAuth: []
+      responses:
+        "204":
+          description: Institution linked to project
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    delete:
+      summary: Unlink an institution from a project
+      operationId: unlinkProjectInstitution
+      security:
+        - ApiKeyAuth: []
+      responses:
+        "204":
+          description: Institution unlinked from project
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+components:
+  securitySchemes:
+    ApiKeyAuth:
+      type: apiKey
+      in: header
+      name: X-API-Key
+  parameters:
+    ProjectId:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: integer
+        format: int64
+        minimum: 1
+  responses:
+    BadRequest:
+      description: Validation or request parsing error
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/ProblemDetail"
+    Unauthorized:
+      description: Missing or invalid X-API-Key
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/ProblemDetail"
+    NotFound:
+      description: Resource not found
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/ProblemDetail"
+    Conflict:
+      description: Uniqueness constraint conflict
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/ProblemDetail"
+  schemas:
+    ProjectStatus:
+      type: string
+      enum: [active, paused]
+    Project:
+      type: object
+      required: [id, slug, name, keywords, topics, priority, status, created_at, updated_at]
+      properties:
+        id:
+          type: integer
+          format: int64
+        slug:
+          type: string
+          pattern: "^[a-z0-9][a-z0-9-]{1,62}$"
+        name:
+          type: string
+        description:
+          type: string
+          nullable: true
+        keywords:
+          type: array
+          items:
+            type: string
+        topics:
+          type: array
+          items:
+            type: string
+        priority:
+          type: integer
+          minimum: 1
+          maximum: 5
+        status:
+          $ref: "#/components/schemas/ProjectStatus"
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    ProjectDetail:
+      allOf:
+        - $ref: "#/components/schemas/Project"
+        - type: object
+          required: [repos, institutions]
+          properties:
+            repos:
+              type: array
+              items:
+                $ref: "#/components/schemas/Repo"
+            institutions:
+              type: array
+              items:
+                $ref: "#/components/schemas/Institution"
+    Repo:
+      type: object
+      required: [id, project_id, github_full_name, is_primary, created_at, updated_at]
+      properties:
+        id:
+          type: integer
+          format: int64
+        project_id:
+          type: integer
+          format: int64
+        github_full_name:
+          type: string
+          pattern: "^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$"
+        is_primary:
+          type: boolean
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    Institution:
+      type: object
+      required: [id, name, created_at, updated_at]
+      properties:
+        id:
+          type: integer
+          format: int64
+        ror_id:
+          type: string
+          nullable: true
+        name:
+          type: string
+        country:
+          type: string
+          minLength: 2
+          maxLength: 2
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    CreateProjectRequest:
+      type: object
+      required: [slug, name]
+      properties:
+        slug:
+          type: string
+          pattern: "^[a-z0-9][a-z0-9-]{1,62}$"
+        name:
+          type: string
+        description:
+          type: string
+          nullable: true
+        keywords:
+          type: array
+          items:
+            type: string
+        topics:
+          type: array
+          items:
+            type: string
+        priority:
+          type: integer
+          minimum: 1
+          maximum: 5
+          default: 3
+        status:
+          $ref: "#/components/schemas/ProjectStatus"
+    UpdateProjectRequest:
+      type: object
+      properties:
+        slug:
+          type: string
+          pattern: "^[a-z0-9][a-z0-9-]{1,62}$"
+        name:
+          type: string
+        description:
+          type: string
+          nullable: true
+        keywords:
+          type: array
+          items:
+            type: string
+        topics:
+          type: array
+          items:
+            type: string
+        priority:
+          type: integer
+          minimum: 1
+          maximum: 5
+        status:
+          $ref: "#/components/schemas/ProjectStatus"
+    ListProjectsResponse:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/Project"
+        next_cursor:
+          type: integer
+          format: int64
+          nullable: true
+    CreateRepoRequest:
+      type: object
+      required: [github_full_name]
+      properties:
+        github_full_name:
+          type: string
+          pattern: "^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$"
+        is_primary:
+          type: boolean
+          default: false
+    CreateInstitutionRequest:
+      type: object
+      required: [name]
+      properties:
+        ror_id:
+          type: string
+          nullable: true
+        name:
+          type: string
+        country:
+          type: string
+          minLength: 2
+          maxLength: 2
+          nullable: true
+    FieldError:
+      type: object
+      required: [message]
+      properties:
+        field:
+          type: string
+        message:
+          type: string
+        code:
+          type: string
+    ProblemDetail:
+      type: object
+      required: [type, title, status, errors]
+      properties:
+        type:
+          type: string
+        title:
+          type: string
+        status:
+          type: integer
+        detail:
+          type: string
+        instance:
+          type: string
+        errors:
+          type: array
+          items:
+            $ref: "#/components/schemas/FieldError"

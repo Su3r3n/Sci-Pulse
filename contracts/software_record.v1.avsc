@@ -1,0 +1,32 @@
+{
+  "type": "record",
+  "name": "SoftwareRecord",
+  "namespace": "org.scipulse.v1",
+  "fields": [
+    {"name": "record_doi", "type": "string"},
+    {"name": "concept_doi", "type": ["null", "string"], "default": null},
+    {"name": "version", "type": ["null", "string"], "default": null},
+    {"name": "title", "type": "string"},
+    {
+      "name": "published_at",
+      "type": {"type": "long", "logicalType": "timestamp-millis"}
+    },
+    {
+      "name": "related_identifiers",
+      "type": {
+        "type": "array",
+        "items": {
+          "type": "record",
+          "name": "RelatedIdentifier",
+          "fields": [
+            {"name": "relation", "type": "string"},
+            {"name": "scheme", "type": "string"},
+            {"name": "identifier", "type": "string"}
+          ]
+        }
+      },
+      "default": []
+    },
+    {"name": "repo_full_name", "type": ["null", "string"], "default": null}
+  ]
+}

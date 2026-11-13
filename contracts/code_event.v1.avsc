@@ -1,0 +1,27 @@
+{
+  "type": "record",
+  "name": "CodeEvent",
+  "namespace": "org.scipulse.v1",
+  "fields": [
+    {"name": "event_id", "type": "string"},
+    {
+      "name": "type",
+      "type": {
+        "type": "enum",
+        "name": "CodeEventType",
+        "symbols": ["Push", "Release", "Watch", "Issues", "PullRequest", "Fork"]
+      }
+    },
+    {"name": "repo_full_name", "type": "string"},
+    {"name": "actor_login", "type": ["null", "string"], "default": null},
+    {
+      "name": "created_at",
+      "type": {"type": "long", "logicalType": "timestamp-millis"}
+    },
+    {
+      "name": "replayed_at",
+      "type": {"type": "long", "logicalType": "timestamp-millis"}
+    },
+    {"name": "source_hour", "type": "string"}
+  ]
+}

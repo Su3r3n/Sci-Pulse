@@ -1,0 +1,75 @@
+{
+  "type": "record",
+  "name": "Paper",
+  "namespace": "org.scipulse.v1",
+  "fields": [
+    {
+      "name": "source",
+      "type": {
+        "type": "enum",
+        "name": "Source",
+        "symbols": ["openalex", "arxiv", "inspire"]
+      }
+    },
+    {"name": "source_id", "type": "string"},
+    {"name": "doi", "type": ["null", "string"], "default": null},
+    {"name": "arxiv_id", "type": ["null", "string"], "default": null},
+    {"name": "title", "type": "string"},
+    {"name": "abstract", "type": ["null", "string"], "default": null},
+    {"name": "comments", "type": ["null", "string"], "default": null},
+    {"name": "journal_ref", "type": ["null", "string"], "default": null},
+    {
+      "name": "authors",
+      "type": {
+        "type": "array",
+        "items": {
+          "type": "record",
+          "name": "Author",
+          "fields": [
+            {"name": "name", "type": "string"},
+            {"name": "orcid", "type": ["null", "string"], "default": null},
+            {
+              "name": "affiliations",
+              "type": {"type": "array", "items": "string"},
+              "default": []
+            }
+          ]
+        }
+      },
+      "default": []
+    },
+    {
+      "name": "topics",
+      "type": {"type": "array", "items": "string"},
+      "default": []
+    },
+    {
+      "name": "published_at",
+      "type": {"type": "long", "logicalType": "timestamp-millis"}
+    },
+    {
+      "name": "updated_at",
+      "type": {"type": "long", "logicalType": "timestamp-millis"}
+    },
+    {"name": "cited_by_count", "type": ["null", "int"], "default": null},
+    {
+      "name": "links",
+      "type": {
+        "type": "array",
+        "items": {
+          "type": "record",
+          "name": "Link",
+          "fields": [
+            {"name": "url", "type": "string"},
+            {"name": "kind", "type": "string"}
+          ]
+        }
+      },
+      "default": []
+    },
+    {
+      "name": "ingested_at",
+      "type": {"type": "long", "logicalType": "timestamp-millis"}
+    }
+  ]
+}
