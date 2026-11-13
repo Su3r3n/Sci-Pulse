@@ -24,8 +24,9 @@ from pathlib import Path
 
 import pytest
 
-CODER1_ROOT = Path(r"C:\Users\beish\orca\workspaces\Sci-Pulse\main")
-TESTER_ROOT = Path(__file__).resolve().parent.parent
+REPO_ROOT = Path(__file__).resolve().parent.parent
+CODER1_ROOT = REPO_ROOT
+TESTER_ROOT = REPO_ROOT
 
 
 def test_registry_migrations_up_and_down_completeness() -> None:

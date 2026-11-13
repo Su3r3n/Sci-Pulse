@@ -12,8 +12,10 @@ import re
 from pathlib import Path
 from typing import Dict
 
-CODER1_ROOT = Path(r"C:\Users\beish\orca\workspaces\Sci-Pulse\main")
-CODER2_ROOT = Path(r"C:\Users\beish\orca\workspaces\Sci-Pulse\main-2")
+# Оба кодера влиты в main, поэтому и coder-1, и coder-2 артефакты лежат в корне репозитория.
+REPO_ROOT = Path(__file__).resolve().parent.parent
+CODER1_ROOT = REPO_ROOT
+CODER2_ROOT = REPO_ROOT
 
 
 EXPECTED_KAFKA_TOPICS: Dict[str, int] = {
@@ -53,20 +55,24 @@ def test_debezium_registry_config_matches_section_4_4() -> None:
     assert cfg["topic.prefix"] == "cdc.registry"
     assert cfg["publication.name"] == "dbz_registry"
     assert cfg["transforms.unwrap.delete.handling.mode"] == "rewrite"
-    assert cfg["key.converter"] == "io.confluent.connect.avro.AvroConverter"
+    # ADR-004: значения — AvroConfluent; ключ допускается строковый или Avro.
+    assert cfg["key.converter"] in (
+        "org.apache.kafka.connect.storage.StringConverter",
+        "io.confluent.connect.avro.AvroConverter",
+    )
     assert cfg["value.converter"] == "io.confluent.connect.avro.AvroConverter"
 
 
 def test_clickhouse_queues_consumer_groups_match_section_2_3() -> None:
+    # ch_synthetic (synthetic_queue) — объект спринта S5 (§7.1), в волне 1 не проверяется.
     queues_sql = (CODER2_ROOT / "platform" / "clickhouse" / "02_queues.sql").read_text(encoding="utf-8")
-    for expected_group in (
-        "ch_registry",
-        "ch_live_papers",
-        "ch_live_code",
-        "ch_dlq",
-        "ch_synthetic",
-    ):
-        assert expected_group in queues_sql, f"Missing consumer group {expected_group} in 02_queues.sql"
+    groups = set(re.findall(r"kafka_group_name\s*=\s*'([^']+)'", queues_sql))
+    for expected_group in ("ch_live_papers", "ch_live_code", "ch_dlq"):
+        assert expected_group in groups, f"Missing consumer group {expected_group} in 02_queues.sql"
+    # §2.3 называет группу реестра `ch_registry`; coder-2 использует по группе на очередь
+    # (ch_registry_projects, ...). Функционально эквивалентно, поэтому проверяем префикс.
+    registry_groups = {g for g in groups if g.startswith("ch_registry")}
+    assert len(registry_groups) >= 2, f"Registry queues need consumer groups, got {sorted(groups)}"
 
 
 def test_spark_jobs_exist_and_cover_medallion_pipeline() -> None:

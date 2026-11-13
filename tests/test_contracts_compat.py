@@ -22,15 +22,14 @@ from typing import Any, Dict, List, Set, Tuple
 import pytest
 
 
+REPO_ROOT = Path(__file__).resolve().parent.parent
+
+
 def resolve_contracts_dir() -> Path:
-    candidates = [
-        Path(__file__).resolve().parent.parent / "contracts",
-        Path(r"C:\Users\beish\orca\workspaces\Sci-Pulse\main\contracts"),
-    ]
-    for path in candidates:
-        if path.is_dir():
-            return path
-    pytest.fail(f"Could not locate contracts/ directory in {candidates}")
+    path = REPO_ROOT / "contracts"
+    if not path.is_dir():
+        pytest.fail(f"Could not locate contracts/ directory at {path}")
+    return path
 
 
 EXPECTED_SCHEMAS: Dict[str, Set[str]] = {

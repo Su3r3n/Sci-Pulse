@@ -1,5 +1,8 @@
 package tests
 
+// Запуск: из каталога tests/ выполнить `GOWORK=off go test ./...`
+// (модуль tests/ не входит в корневой go.work).
+
 import (
 	"encoding/json"
 	"encoding/xml"
@@ -10,10 +13,21 @@ import (
 	"testing"
 )
 
-const (
-	coder1Root = `C:\Users\beish\orca\workspaces\Sci-Pulse\main`
-	coder2Root = `C:\Users\beish\orca\workspaces\Sci-Pulse\main-2`
+// Оба кодера влиты в main: артефакты coder-1 и coder-2 лежат в корне репозитория.
+// Тесты запускаются из каталога tests/, поэтому корень репо — "..".
+var (
+	repoRoot   = mustAbs("..")
+	coder1Root = repoRoot
+	coder2Root = repoRoot
 )
+
+func mustAbs(p string) string {
+	abs, err := filepath.Abs(p)
+	if err != nil {
+		panic(err)
+	}
+	return abs
+}
 
 type avroSchema struct {
 	Type      string      `json:"type"`
