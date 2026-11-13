@@ -199,9 +199,8 @@ services:
     networks: [scipulse]
     ports:
       - "127.0.0.1:8083:8083"
-    volumes:
-      # Файл создаёт `make secrets` из .env (B3); пароль не попадает в репозиторий.
-      - ./secrets:/secrets:ro
+    # /secrets/debezium.properties пишет scipulse-connect-entrypoint.sh из DEBEZIUM_DB_* при старте
+    # (R1). Каталог /secrets принадлежит пользователю kafka в образе, монтировать его не нужно.
     depends_on:
       kafka:
         condition: service_healthy
@@ -220,8 +219,11 @@ services:
       STATUS_STORAGE_REPLICATION_FACTOR: 1
       KEY_CONVERTER: io.confluent.connect.avro.AvroConverter
       VALUE_CONVERTER: io.confluent.connect.avro.AvroConverter
-      KEY_CONVERTER_SCHEMA_REGISTRY_URL: http://schema-registry:8081
-      VALUE_CONVERTER_SCHEMA_REGISTRY_URL: http://schema-registry:8081
+      CONNECT_KEY_CONVERTER_SCHEMA_REGISTRY_URL: http://schema-registry:8081   # R5: префикс CONNECT_
+      CONNECT_VALUE_CONVERTER_SCHEMA_REGISTRY_URL: http://schema-registry:8081
+      # R1: читает entrypoint (set -eu, обе переменные обязательны) и пишет /secrets/debezium.properties.
+      DEBEZIUM_DB_USER: ${DEBEZIUM_DB_USER:-debezium}
+      DEBEZIUM_DB_PASSWORD: ${DEBEZIUM_DB_PASSWORD:-debezium_dev_pass}
       CONNECT_CONFIG_PROVIDERS: file
       CONNECT_CONFIG_PROVIDERS_FILE_CLASS: org.apache.kafka.common.config.provider.FileConfigProvider
       KAFKA_HEAP_OPTS: "-Xms256m -Xmx512m"   # m6: heap под лимит mem_limit 768m
@@ -428,7 +430,8 @@ services:
     environment:
       KAFKA_BROKERS: kafka:9092
       SCHEMA_REGISTRY_URL: http://schema-registry:8081
-      PORT: "8084"   # m3: имя переменной согласовать с services/loadgen-go
+      HTTP_ADDR: ":8084"   # m3: loadgen-go читает HTTP_ADDR
+      PORT: "8084"         # m3: задано по указанию координатора; loadgen-go PORT не читает (HTTP_ADDR главнее)
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://localhost:8084/healthz >/dev/null || exit 1"]
       interval: 10s
