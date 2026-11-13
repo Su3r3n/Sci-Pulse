@@ -2,8 +2,9 @@
 Волна 1, проверка на живом стенде (docs/reviews/wave1-live-check.md).
 
 Статические инварианты для дефектов, которые проявились только при запуске стека
-(`docker compose --profile core up`). Docker для этих тестов не нужен. Пока владелец
-не исправит код, тесты L1–L3 падают — это ожидаемые находки, а не сбой тестов.
+(`docker compose --profile core up`). Docker для этих тестов не нужен. L1–L3 и L5
+исправлены и подтверждены на стенде (docs/reviews/wave1-final-check.md); тесты держат
+регрессию.
 """
 
 from __future__ import annotations
@@ -96,3 +97,28 @@ def test_registry_cdc_queues_flush_fast_enough_for_section_4_6_slo() -> None:
         assert flush and int(flush.group(1)) <= 1000, (
             f"{name}: kafka_flush_interval_ms is not set (default 7500 ms); CDC p95 cannot meet 2 s"
         )
+
+
+def _mem_mib(value: object) -> float:
+    m = re.fullmatch(r"(\d+(?:\.\d+)?)\s*([kmg]?)b?", str(value).strip().lower())
+    assert m, f"unparseable mem_limit {value!r}"
+    num, unit = float(m.group(1)), m.group(2)
+    return num * {"": 1 / 1024 / 1024, "k": 1 / 1024, "m": 1, "g": 1024}[unit]
+
+
+@pytest.mark.parametrize(
+    ("service", "observed_mib"),
+    [
+        # docker stats на стенде (wave1-live-check / wave1-final-check): пиковое
+        # наблюдаемое потребление. Нужен запас не менее 25 % до mem_limit.
+        ("connect", 653),
+        ("schema-registry", 340),
+    ],
+)
+def test_jvm_services_have_memory_headroom(service: str, observed_mib: int) -> None:
+    """L5: connect и schema-registry не должны работать у самого mem_limit."""
+    limit = _mem_mib(_service(service).get("mem_limit"))
+    assert observed_mib <= 0.75 * limit, (
+        f"{service}: mem_limit {limit:.0f} MiB, observed {observed_mib} MiB "
+        f"(>{observed_mib / limit:.0%}); raise mem_limit or lower the heap"
+    )
