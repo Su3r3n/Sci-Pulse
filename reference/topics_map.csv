@@ -1,0 +1,28 @@
+raw_topic,topic_l1,topic_l2
+hep-ph,Physics,High Energy Physics - Phenomenology
+hep-th,Physics,High Energy Physics - Theory
+hep-ex,Physics,High Energy Physics - Experiment
+hep-lat,Physics,High Energy Physics - Lattice
+astro-ph,Physics,Astrophysics
+nucl-th,Physics,Nuclear Theory
+nucl-ex,Physics,Nuclear Experiment
+quant-ph,Physics,Quantum Physics
+cond-mat,Physics,Condensed Matter
+cs.AI,Computer Science,Artificial Intelligence
+cs.LG,Computer Science,Machine Learning
+cs.DC,Computer Science,Distributed Computing
+cs.SE,Computer Science,Software Engineering
+cs.DB,Computer Science,Databases
+cs.CL,Computer Science,Computation and Language
+stat.ML,Statistics,Machine Learning
+math-ph,Mathematics,Mathematical Physics
+physics.data-an,Physics,Data Analysis and Statistics
+physics.comp-ph,Physics,Computational Physics
+High Energy Physics,Physics,High Energy Physics
+Particle Physics,Physics,Particle Physics
+Machine Learning,Computer Science,Machine Learning
+Distributed Computing,Computer Science,Distributed Computing
+Software Engineering,Computer Science,Software Engineering
+Data Engineering,Computer Science,Data Engineering
+Astrophysics,Physics,Astrophysics
+Quantum Computing,Physics,Quantum Physics
