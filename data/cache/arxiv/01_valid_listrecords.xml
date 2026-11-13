@@ -1,0 +1,70 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<OAI-PMH xmlns="http://www.openarchives.org/OAI/2.0/"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+  <responseDate>2025-02-15T12:00:00Z</responseDate>
+  <request verb="ListRecords" metadataPrefix="arXiv">http://export.arxiv.org/oai2</request>
+  <ListRecords>
+    <record>
+      <header>
+        <identifier>oai:arXiv.org:2403.00001</identifier>
+        <datestamp>2024-03-15</datestamp>
+        <setSpec>physics:hep-ex</setSpec>
+        <setSpec>cs</setSpec>
+      </header>
+      <metadata>
+        <arXiv xmlns="http://arxiv.org/OAI/arXiv/">
+          <id>2403.00001</id>
+          <created>2024-03-15</created>
+          <updated>2024-03-18</updated>
+          <title>RNTuple Performance in ROOT for HL-LHC Workflows</title>
+          <authors>
+            <author>
+              <keyname>Blomer</keyname>
+              <forenames>Jakob</forenames>
+              <affiliation>CERN</affiliation>
+            </author>
+            <author>
+              <keyname>Canal</keyname>
+              <forenames>Philippe</forenames>
+              <affiliation>Fermilab</affiliation>
+            </author>
+          </authors>
+          <categories>hep-ex cs.DB</categories>
+          <comments>14 pages, 6 figures. Code available at https://github.com/root-project/root</comments>
+          <journal-ref>Comput. Phys. Commun. 298 (2024) 109001</journal-ref>
+          <doi>10.1016/j.cpc.2024.109001</doi>
+          <license>http://creativecommons.org/licenses/by/4.0/</license>
+          <abstract>We evaluate RNTuple I/O throughput in ROOT (https://github.com/root-project/root) across object stores and XRootD (https://github.com/xrootd/xrootd).</abstract>
+        </arXiv>
+      </metadata>
+    </record>
+    <record>
+      <header>
+        <identifier>oai:arXiv.org:2405.00002</identifier>
+        <datestamp>2024-05-10</datestamp>
+        <setSpec>physics:hep-ex</setSpec>
+      </header>
+      <metadata>
+        <arXiv xmlns="http://arxiv.org/OAI/arXiv/">
+          <id>2405.00002</id>
+          <created>2024-05-10</created>
+          <updated>2024-05-11</updated>
+          <title>Declarative Data Management with Rucio in Run 3</title>
+          <authors>
+            <author>
+              <keyname>Barisits</keyname>
+              <forenames>Martin</forenames>
+              <affiliation>CERN</affiliation>
+            </author>
+          </authors>
+          <categories>hep-ex cs.DC</categories>
+          <comments>8 pages, CHEP 2024 proceedings, source at https://github.com/rucio/rucio</comments>
+          <journal-ref>EPJ Web Conf. 295 (2024) 01001</journal-ref>
+          <doi>10.1051/epjconf/202429501001</doi>
+          <license>http://creativecommons.org/licenses/by/4.0/</license>
+          <abstract>Overview of Rucio federation capabilities in LHC Run 3.</abstract>
+        </arXiv>
+      </metadata>
+    </record>
+  </ListRecords>
+</OAI-PMH>

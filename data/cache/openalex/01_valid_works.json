@@ -1,0 +1,196 @@
+{
+  "meta": {
+    "count": 3,
+    "db_response_time_ms": 18,
+    "page": 1,
+    "per_page": 200,
+    "next_cursor": null
+  },
+  "results": [
+    {
+      "id": "https://openalex.org/W4390000001",
+      "doi": "https://doi.org/10.1016/j.cpc.2024.109001",
+      "title": "ROOT: Data Analysis Framework for High Energy Physics at the HL-LHC Era",
+      "publication_date": "2024-03-15",
+      "updated_date": "2024-03-20T10:00:00Z",
+      "cited_by_count": 42,
+      "is_oa": true,
+      "open_access": {
+        "is_oa": true,
+        "oa_status": "gold"
+      },
+      "primary_location": {
+        "source": {
+          "display_name": "Computer Physics Communications"
+        }
+      },
+      "ids": {
+        "openalex": "https://openalex.org/W4390000001",
+        "doi": "https://doi.org/10.1016/j.cpc.2024.109001",
+        "arxiv": "https://arxiv.org/abs/2403.00001"
+      },
+      "abstract_inverted_index": {
+        "We": [0],
+        "present": [1],
+        "recent": [2],
+        "advances": [3],
+        "in": [4],
+        "the": [5],
+        "ROOT": [6],
+        "framework": [7],
+        "hosted": [8],
+        "at": [9],
+        "https://github.com/root-project/root": [10],
+        "for": [11],
+        "columnar": [12],
+        "RNTuple": [13],
+        "analysis.": [14]
+      },
+      "authorships": [
+        {
+          "author": {
+            "id": "https://openalex.org/A5000000001",
+            "display_name": "Rene Brun",
+            "orcid": "https://orcid.org/0000-0001-2345-6789"
+          },
+          "institutions": [
+            {
+              "display_name": "CERN",
+              "ror": "https://ror.org/01ggx4157",
+              "country_code": "CH"
+            }
+          ]
+        }
+      ],
+      "topics": [
+        {
+          "id": "https://openalex.org/T10048",
+          "display_name": "Particle Physics",
+          "score": 0.98
+        }
+      ],
+      "referenced_works": [
+        "https://openalex.org/W2000000001",
+        "https://openalex.org/W2000000002"
+      ]
+    },
+    {
+      "id": "https://openalex.org/W4390000002",
+      "doi": "https://doi.org/10.1051/epjconf/202429501001",
+      "title": "Rucio Exabyte-Scale Scientific Data Management across WLCG",
+      "publication_date": "2024-05-10",
+      "updated_date": "2024-05-12T08:30:00Z",
+      "cited_by_count": 19,
+      "is_oa": true,
+      "open_access": {
+        "is_oa": true,
+        "oa_status": "green"
+      },
+      "primary_location": {
+        "source": {
+          "display_name": "EPJ Web of Conferences"
+        }
+      },
+      "ids": {
+        "openalex": "https://openalex.org/W4390000002",
+        "doi": "https://doi.org/10.1051/epjconf/202429501001",
+        "arxiv": "https://arxiv.org/abs/2405.00002"
+      },
+      "abstract_inverted_index": {
+        "Rucio": [0],
+        "(https://github.com/rucio/rucio)": [1],
+        "manages": [2],
+        "exabytes": [3],
+        "of": [4],
+        "scientific": [5],
+        "data": [6],
+        "with": [7],
+        "XRootD": [8],
+        "transfers.": [9]
+      },
+      "authorships": [
+        {
+          "author": {
+            "id": "https://openalex.org/A5000000002",
+            "display_name": "Martin Barisits",
+            "orcid": "https://orcid.org/0000-0002-3456-7890"
+          },
+          "institutions": [
+            {
+              "display_name": "CERN",
+              "ror": "https://ror.org/01ggx4157",
+              "country_code": "CH"
+            }
+          ]
+        }
+      ],
+      "topics": [
+        {
+          "id": "https://openalex.org/T10715",
+          "display_name": "Distributed Grid Computing",
+          "score": 0.95
+        }
+      ],
+      "referenced_works": []
+    },
+    {
+      "id": "https://openalex.org/W4390000003",
+      "doi": "https://doi.org/10.1088/1742-6596/2438/1/012010",
+      "title": "XRootD 5 High-Performance Federated Storage and Caching",
+      "publication_date": "2024-06-01",
+      "updated_date": "2024-06-02T12:00:00Z",
+      "cited_by_count": 11,
+      "is_oa": true,
+      "open_access": {
+        "is_oa": true,
+        "oa_status": "gold"
+      },
+      "primary_location": {
+        "source": {
+          "display_name": "Journal of Physics: Conference Series"
+        }
+      },
+      "ids": {
+        "openalex": "https://openalex.org/W4390000003",
+        "doi": "https://doi.org/10.1088/1742-6596/2438/1/012010"
+      },
+      "abstract_inverted_index": {
+        "High": [0],
+        "throughput": [1],
+        "streaming": [2],
+        "in": [3],
+        "XRootD": [4],
+        "https://github.com/xrootd/xrootd": [5],
+        "for": [6],
+        "HEP": [7],
+        "experiments.": [8]
+      },
+      "authorships": [
+        {
+          "author": {
+            "id": "https://openalex.org/A5000000003",
+            "display_name": "Andrew Hanushevsky",
+            "orcid": null
+          },
+          "institutions": [
+            {
+              "display_name": "SLAC National Accelerator Laboratory",
+              "ror": "https://ror.org/05gzmn429",
+              "country_code": "US"
+            }
+          ]
+        }
+      ],
+      "topics": [
+        {
+          "id": "https://openalex.org/T10715",
+          "display_name": "Distributed Grid Computing",
+          "score": 0.91
+        }
+      ],
+      "referenced_works": [
+        "https://openalex.org/W4390000001"
+      ]
+    }
+  ]
+}

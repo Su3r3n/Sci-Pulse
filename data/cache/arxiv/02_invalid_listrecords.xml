@@ -1,0 +1,78 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<OAI-PMH xmlns="http://www.openarchives.org/OAI/2.0/">
+  <responseDate>2025-02-15T12:00:00Z</responseDate>
+  <request verb="ListRecords" metadataPrefix="arXiv">http://export.arxiv.org/oai2</request>
+  <ListRecords>
+    <record>
+      <header>
+        <identifier>oai:arXiv.org:2499.00001</identifier>
+        <datestamp>2024-06-01</datestamp>
+      </header>
+      <metadata>
+        <arXiv xmlns="http://arxiv.org/OAI/arXiv/">
+          <id>2499.00001</id>
+          <created>2024-06-01</created>
+          <title>   </title>
+          <authors>
+            <author><keyname>Doe</keyname><forenames>John</forenames></author>
+          </authors>
+          <categories>hep-ex</categories>
+          <abstract>Missing title record for DLQ validation.</abstract>
+        </arXiv>
+      </metadata>
+    </record>
+    <record>
+      <header>
+        <identifier>oai:arXiv.org:2499.00002</identifier>
+        <datestamp>2024-06-01</datestamp>
+      </header>
+      <metadata>
+        <arXiv xmlns="http://arxiv.org/OAI/arXiv/">
+          <id>2499.00002</id>
+          <created>2099-12-31</created>
+          <title>Future Date arXiv Record</title>
+          <authors>
+            <author><keyname>Doe</keyname><forenames>Jane</forenames></author>
+          </authors>
+          <categories>hep-ex</categories>
+          <abstract>Published in 2099, triggers future_published_at DLQ rule.</abstract>
+        </arXiv>
+      </metadata>
+    </record>
+    <record>
+      <header>
+        <identifier>oai:arXiv.org:2499.00003</identifier>
+        <datestamp>2024-06-01</datestamp>
+      </header>
+      <metadata>
+        <arXiv xmlns="http://arxiv.org/OAI/arXiv/">
+          <id>2499.00003</id>
+          <created>2024-06-01</created>
+          <title>Authorless arXiv Record</title>
+          <authors></authors>
+          <categories>hep-ex</categories>
+          <abstract>No authors listed, triggers no_authors DLQ rule.</abstract>
+        </arXiv>
+      </metadata>
+    </record>
+    <record>
+      <header>
+        <identifier>oai:arXiv.org:2499.00004</identifier>
+        <datestamp>2024-06-01</datestamp>
+      </header>
+      <metadata>
+        <arXiv xmlns="http://arxiv.org/OAI/arXiv/">
+          <id>2499.00004</id>
+          <created>2024-06-01</created>
+          <title>Bad DOI arXiv Record</title>
+          <authors>
+            <author><keyname>Smith</keyname><forenames>Alice</forenames></author>
+          </authors>
+          <doi>invalid_doi_without_10_prefix</doi>
+          <categories>hep-ex</categories>
+          <abstract>Invalid DOI format, triggers bad_doi DLQ rule.</abstract>
+        </arXiv>
+      </metadata>
+    </record>
+  </ListRecords>
+</OAI-PMH>
