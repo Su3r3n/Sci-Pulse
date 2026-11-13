@@ -87,7 +87,7 @@ services:
     environment:
       KAFKA_NODE_ID: 1
       KAFKA_PROCESS_ROLES: broker,controller
-      KAFKA_LISTENERS: INTERNAL://0.0.0.0:9092,EXTERNAL://0.0.0.0:9094,CONTROLLER://0.0.0.0:9093
+      KAFKA_LISTENERS: INTERNAL://0.0.0.0:9092,EXTERNAL://0.0.0.0:9094,CONTROLLER://:9093
       KAFKA_ADVERTISED_LISTENERS: INTERNAL://kafka:9092,EXTERNAL://localhost:9094
       KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,INTERNAL:PLAINTEXT,EXTERNAL:PLAINTEXT
       KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
@@ -123,7 +123,7 @@ services:
     image: ${SCHEMA_REGISTRY_IMAGE:-confluentinc/cp-schema-registry:7.7.1}
     profiles: ["core"]
     restart: unless-stopped
-    mem_limit: 384m
+    mem_limit: 512m
     networks: [scipulse]
     ports:
       - "127.0.0.1:8081:8081"
@@ -195,7 +195,7 @@ services:
     image: scipulse/debezium-connect:2.7.3-avro
     profiles: ["core"]
     restart: unless-stopped
-    mem_limit: 768m
+    mem_limit: 1024m
     networks: [scipulse]
     ports:
       - "127.0.0.1:8083:8083"
