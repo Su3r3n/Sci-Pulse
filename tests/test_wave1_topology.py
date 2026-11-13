@@ -54,13 +54,21 @@ def test_debezium_registry_config_matches_section_4_4() -> None:
     assert cfg["plugin.name"] == "pgoutput"
     assert cfg["topic.prefix"] == "cdc.registry"
     assert cfg["publication.name"] == "dbz_registry"
-    assert cfg["transforms.unwrap.delete.handling.mode"] == "rewrite"
-    # ADR-004: значения — AvroConfluent; ключ допускается строковый или Avro.
-    assert cfg["key.converter"] in (
-        "org.apache.kafka.connect.storage.StringConverter",
-        "io.confluent.connect.avro.AvroConverter",
-    )
+    # §4.4 (примечание) и ADR-004: в Debezium >= 2.5 пара delete.handling.mode=rewrite +
+    # drop.tombstones=true заменена одним ключом delete.tombstone.handling.mode=rewrite
+    # (строка удаления с __deleted=true, tombstone не пишется). Образ — 2.7.3.Final, поэтому
+    # ожидаем новый ключ; старые ключи deprecated и вместе с новым не допускаются.
+    assert cfg.get("transforms.unwrap.delete.tombstone.handling.mode") == "rewrite"
+    for deprecated in ("transforms.unwrap.delete.handling.mode", "transforms.unwrap.drop.tombstones"):
+        assert deprecated not in cfg, f"{deprecated} is deprecated in Debezium 2.7 and conflicts with the new key"
+    assert cfg["transforms.unwrap.add.fields"] == "op,source.ts_ms"
+    # Р-2 / ADR-004 (ред. после ревью m4): ключ и значение — AvroConfluent, оба со ссылкой на SR.
+    assert cfg["key.converter"] == "io.confluent.connect.avro.AvroConverter"
     assert cfg["value.converter"] == "io.confluent.connect.avro.AvroConverter"
+    assert cfg["key.converter.schema.registry.url"] == "http://schema-registry:8081"
+    assert cfg["value.converter.schema.registry.url"] == "http://schema-registry:8081"
+    assert cfg["database.user"] == "${file:/secrets/debezium.properties:user}"
+    assert cfg["database.password"] == "${file:/secrets/debezium.properties:password}"
 
 
 def test_clickhouse_queues_consumer_groups_match_section_2_3() -> None:
