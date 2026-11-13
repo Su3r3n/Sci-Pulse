@@ -45,6 +45,7 @@ wait_for_registry() {
 build_schema_payload() {
   schema_file="$1"
   escaped=$(awk '{
+    sub(/\r$/, "")
     gsub(/\\/, "\\\\")
     gsub(/"/, "\\\"")
     printf "%s\\n", $0
