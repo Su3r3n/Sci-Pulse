@@ -256,7 +256,7 @@ services:
   # 4. MinIO + ClickHouse + Spark
   # ===========================================================================
   minio:
-    image: ${MINIO_IMAGE:-quay.io/minio/minio:RELEASE.2024-10-13T13-34-11Z}
+    image: ${MINIO_IMAGE:-bitnamilegacy/minio:2024.10.13}
     profiles: ["core"]
     restart: unless-stopped
     mem_limit: 384m
@@ -267,14 +267,15 @@ services:
     environment:
       MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minioadmin_dev_pass}
-    command: server /data --console-address ":9001"
+    # Образ Bitnami (minio/minio и quay.io-образы недоступны): бинарник не в PATH, данные в /bitnami/minio/data (uid 1001).
+    command: ["/opt/bitnami/minio/bin/minio", "server", "/bitnami/minio/data", "--console-address", ":9001"]
     volumes:
-      - minio_data:/data
+      - minio_data:/bitnami/minio/data
     # M7: в образе minio нет curl, поэтому healthcheck убран. Готовность проверяет
     # minio-init через `mc ready` (см. platform/minio/init.sh).
 
   minio-init:
-    image: ${MINIO_MC_IMAGE:-quay.io/minio/mc:RELEASE.2024-10-08T09-37-26Z}
+    image: ${MINIO_MC_IMAGE:-bitnamilegacy/minio:2024.10.13}
     profiles: ["core"]
     networks: [scipulse]
     depends_on:
